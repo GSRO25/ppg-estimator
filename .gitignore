@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+certs/
+*.pt
+*.onnx
+ODAFileConverter*.deb
+uploads/
+exports/
+.superpowers/
+dist/
+.turbo/
