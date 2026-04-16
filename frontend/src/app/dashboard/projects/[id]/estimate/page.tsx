@@ -16,6 +16,29 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
   const { id } = use(params);
   const [sections, setSections] = useState<SectionSummary[]>([]);
   const [marginPercent, setMarginPercent] = useState(10);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marginPercent }),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'estimate.xlsx';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/projects/${id}/takeoff`)
@@ -97,6 +120,13 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
           </tfoot>
         </table>
       </div>
+      <button
+        onClick={handleExport}
+        disabled={exporting}
+        className="mt-4 px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {exporting ? 'Exporting...' : 'Export to Excel'}
+      </button>
     </div>
   );
 }
