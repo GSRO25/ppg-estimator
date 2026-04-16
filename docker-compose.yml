@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ppg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-ppg_estimator}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ppg}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  extraction:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - UPLOAD_DIR=/data/uploads
+      - EXPORT_DIR=/data/exports
+    volumes:
+      - uploads:/data/uploads
+      - exports:/data/exports
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://ppg:changeme@db:5432/ppg_estimator}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret-change-in-production}
+      - EXTRACTION_API_URL=http://extraction:8000
+    volumes:
+      - uploads:/data/uploads
+      - exports:/data/exports
+    depends_on:
+      db:
+        condition: service_healthy
+      extraction:
+        condition: service_started
+
+volumes:
+  pgdata:
+  uploads:
+  exports:
