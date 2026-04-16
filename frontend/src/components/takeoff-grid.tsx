@@ -53,7 +53,7 @@ export default function TakeoffGrid({ rows, onQuantityChange }: TakeoffGridProps
         if (c === 'high') return { backgroundColor: '#d4edda' };
         if (c === 'medium') return { backgroundColor: '#fff3cd' };
         if (c === 'low') return { backgroundColor: '#f8d7da' };
-        return {};
+        return null;
       },
     },
     {
