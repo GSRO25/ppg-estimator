@@ -49,7 +49,7 @@ export default function TakeoffGrid({ rows, onQuantityChange, onRowClick }: Take
         return mapped ? '🔗' : '⚠️';
       },
       tooltipValueGetter: (p) => p.data?.rate_card_item_id ? 'Mapped to rate card item' : 'Not mapped — click row to assign',
-      cellStyle: { textAlign: 'center', cursor: 'pointer' },
+      cellClass: 'text-center cursor-pointer',
     },
     { field: 'description', headerName: 'Description', flex: 2, minWidth: 200 },
     { field: 'uom', headerName: 'UOM', width: 100 },
