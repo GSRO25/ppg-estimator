@@ -29,18 +29,21 @@ export default function TakeoffRowEditor({ row, onClose, onSaved, projectId }: P
   const [remember, setRemember] = useState(true);
   const [showViewer, setShowViewer] = useState(false);
 
+  // Reset search whenever a new row is opened
   useEffect(() => {
     if (!row) return;
     setSearch('');
-    const defaultSection = row.section_number !== 99 ? `&section=${row.section_number}` : '';
-    fetch(`/api/rate-cards/search?q=${defaultSection}`).then(r => r.json()).then(setResults);
-  }, [row]);
+  }, [row?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Debounced search — filter by the row's section when user hasn't typed anything,
+  // so default results match the row. Clear search to search everywhere.
   useEffect(() => {
     if (!row) return;
     const t = setTimeout(() => {
-      const url = `/api/rate-cards/search?q=${encodeURIComponent(search)}`;
-      fetch(url).then(r => r.json()).then(setResults);
+      const params = new URLSearchParams();
+      if (search.trim()) params.set('q', search.trim());
+      if (!search.trim() && row.section_number !== 99) params.set('section', String(row.section_number));
+      fetch(`/api/rate-cards/search?${params.toString()}`).then(r => r.json()).then(setResults);
     }, 200);
     return () => clearTimeout(t);
   }, [search, row]);
