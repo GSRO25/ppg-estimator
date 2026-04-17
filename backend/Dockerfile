@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-venv python3.12-dev \
         libgl1-mesa-glx libglib2.0-0 \
         libx11-6 libxext6 libxrender1 libxkbcommon0 libfontconfig1 libgl1 libgomp1 \
+        xvfb \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
     && python3.12 -m ensurepip --upgrade \
