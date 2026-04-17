@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { formatDate } from '@/lib/utils';
+import DeleteRateCardButton from '@/components/delete-rate-card-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,7 @@ export default async function RateCardsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Imported</th>
+                <th className="px-6 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -52,6 +54,7 @@ export default async function RateCardsPage() {
                   <td className="px-6 py-4 text-sm text-gray-500">{v.version}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{v.item_count}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{formatDate(v.imported_at)}</td>
+                  <td className="px-6 py-4 text-right"><DeleteRateCardButton id={v.id} /></td>
                 </tr>
               ))}
             </tbody>

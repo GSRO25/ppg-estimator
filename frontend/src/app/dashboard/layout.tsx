@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: '📊' },
   { href: '/dashboard/projects', label: 'Projects', icon: '📁' },
   { href: '/dashboard/rate-cards', label: 'Rate Cards', icon: '💰' },
+  { href: '/dashboard/settings/mappings', label: 'Rate Mappings', icon: '🔗' },
   { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
 ];
 

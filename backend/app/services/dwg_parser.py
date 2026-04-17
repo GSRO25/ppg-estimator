@@ -2,7 +2,7 @@ import ezdxf
 import os
 import subprocess
 import time
-from app.models.extraction import ExtractionResult
+from app.models.extraction import ExtractionResult, DrawingBounds
 from app.services.layer_analyzer import analyze_layers
 from app.services.block_counter import count_blocks
 from app.services.polyline_measurer import measure_polylines
@@ -51,14 +51,45 @@ def parse_drawing(file_path: str) -> ExtractionResult:
     insunits = doc.header.get("$INSUNITS", 0)
     msp = doc.modelspace()
 
+    pipes = measure_polylines(doc)
+    fixtures = count_blocks(msp)
+    fittings = infer_fittings(msp)
+
+    # Compute drawing bounds from extracted geometry (fallback: DWG extents)
+    bounds = _compute_bounds(pipes, fixtures, fittings, doc)
+
     return ExtractionResult(
         filename=os.path.basename(file_path),
         format=ext.lstrip("."),
         units=UNITS_MAP.get(insunits, "unknown"),
         layers=analyze_layers(doc),
-        fixtures=count_blocks(msp),
-        pipes=measure_polylines(doc),
-        fittings=infer_fittings(msp),
+        fixtures=fixtures,
+        pipes=pipes,
+        fittings=fittings,
         annotations=read_annotations(msp),
+        bounds=bounds,
         warnings=warnings,
     )
+
+
+def _compute_bounds(pipes, fixtures, fittings, doc) -> DrawingBounds | None:
+    xs: list[float] = []
+    ys: list[float] = []
+    for p in pipes:
+        for seg in p.segments:
+            for (x, y) in seg:
+                xs.append(x); ys.append(y)
+    for f in fixtures:
+        for (x, y) in f.locations:
+            xs.append(x); ys.append(y)
+    for fit in fittings:
+        for (x, y) in fit.positions:
+            xs.append(x); ys.append(y)
+    if not xs or not ys:
+        try:
+            ext_min = doc.header.get("$EXTMIN", (0, 0, 0))
+            ext_max = doc.header.get("$EXTMAX", (0, 0, 0))
+            return DrawingBounds(min_x=ext_min[0], min_y=ext_min[1], max_x=ext_max[0], max_y=ext_max[1])
+        except Exception:
+            return None
+    return DrawingBounds(min_x=min(xs), min_y=min(ys), max_x=max(xs), max_y=max(ys))

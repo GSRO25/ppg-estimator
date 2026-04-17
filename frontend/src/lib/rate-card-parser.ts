@@ -69,6 +69,15 @@ export function parseRateCardXlsx(buffer: ArrayBuffer): RateCardItem[] {
     const headerIdx = findHeaderRow(rows);
     if (headerIdx === -1) continue;
 
+    // Layout B: header col[3] = "UOM" means there's an extra time-unit column at col[2]
+    // shifting labour/material/plant to cols 4/5/6 (e.g. sections 6, 10)
+    const headerRow = rows[headerIdx] as string[];
+    const layoutB = String(headerRow[3] || '').toLowerCase().includes('uom');
+    const uomCol    = layoutB ? 3 : 2;
+    const labourCol = layoutB ? 4 : 3;
+    const matCol    = layoutB ? 5 : 4;
+    const plantCol  = layoutB ? 6 : 5;
+
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const row = rows[i] as (string | number)[];
       const desc = String(row[0] || '').trim();
@@ -81,10 +90,10 @@ export function parseRateCardXlsx(buffer: ArrayBuffer): RateCardItem[] {
         sectionName: section.name,
         description: desc,
         productionRate: typeof row[1] === 'number' ? row[1] : null,
-        uom: String(row[2] || ''),
-        labourRate: typeof row[3] === 'number' ? row[3] : 0,
-        materialRate: typeof row[4] === 'number' ? row[4] : 0,
-        plantRate: typeof row[5] === 'number' ? row[5] : 0,
+        uom: String(row[uomCol] || ''),
+        labourRate: typeof row[labourCol] === 'number' ? row[labourCol] as number : 0,
+        materialRate: typeof row[matCol] === 'number' ? row[matCol] as number : 0,
+        plantRate: typeof row[plantCol] === 'number' ? row[plantCol] as number : 0,
         sortOrder: i - headerIdx,
         isSubtotal,
       });

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, use } from 'react';
 import TakeoffGrid, { type TakeoffRow } from '@/components/takeoff-grid';
 import SectionTabs from '@/components/section-tabs';
+import TakeoffRowEditor from '@/components/takeoff-row-editor';
 import { formatCurrency } from '@/lib/utils';
 
 export default function TakeoffPage({ params }: { params: Promise<{ id: string }> }) {
@@ -10,6 +11,7 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
   const [items, setItems] = useState<TakeoffRow[]>([]);
   const [activeSection, setActiveSection] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editingRow, setEditingRow] = useState<TakeoffRow | null>(null);
 
   useEffect(() => {
     fetch(`/api/projects/${id}/takeoff`)
@@ -58,8 +60,18 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
       </div>
       <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
       <div className="flex-1 mt-2">
-        <TakeoffGrid rows={filteredItems} onQuantityChange={handleQuantityChange} />
+        <TakeoffGrid
+          rows={filteredItems}
+          onQuantityChange={handleQuantityChange}
+          onRowClick={setEditingRow}
+        />
       </div>
+      <TakeoffRowEditor
+        row={editingRow}
+        onClose={() => setEditingRow(null)}
+        onSaved={(updated) => setItems(prev => prev.map(i => i.id === updated.id ? updated : i))}
+        projectId={id}
+      />
     </div>
   );
 }

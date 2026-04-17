@@ -16,6 +16,8 @@ class ExtractedPipe(BaseModel):
     pipe_size: Optional[str] = None
     total_length_m: float
     segment_count: int
+    # Line segments in drawing coords: [[[x1,y1],[x2,y2]], ...]
+    segments: list[list[tuple[float, float]]] = []
     confidence: str = "high"
 
 
@@ -24,6 +26,8 @@ class ExtractedFitting(BaseModel):
     layer: str
     service_type: str
     count: int
+    # Positions where fittings were detected
+    positions: list[tuple[float, float]] = []
     confidence: str = "high"
 
 
@@ -39,6 +43,13 @@ class LayerSummary(BaseModel):
     color: int
 
 
+class DrawingBounds(BaseModel):
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+
 class ExtractionResult(BaseModel):
     filename: str
     format: str
@@ -48,4 +59,5 @@ class ExtractionResult(BaseModel):
     pipes: list[ExtractedPipe]
     fittings: list[ExtractedFitting]
     annotations: list[ExtractedAnnotation]
+    bounds: Optional[DrawingBounds] = None
     warnings: list[str] = []
