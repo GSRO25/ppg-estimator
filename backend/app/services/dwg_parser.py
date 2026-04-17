@@ -1,5 +1,7 @@
 import ezdxf
 import os
+import subprocess
+import time
 from app.models.extraction import ExtractionResult
 from app.services.layer_analyzer import analyze_layers
 from app.services.block_counter import count_blocks
@@ -9,12 +11,31 @@ from app.services.annotation_reader import read_annotations
 
 UNITS_MAP = {0: "unitless", 1: "inches", 2: "feet", 4: "mm", 5: "cm", 6: "metres"}
 
+ODA_PLUGIN_PATH = "/usr/bin/ODAFileConverter_27.1.0.0/plugins/platforms"
+XDG_RUNTIME_DIR = "/tmp/runtime-root"
+os.makedirs(XDG_RUNTIME_DIR, mode=0o700, exist_ok=True)
+os.environ.setdefault("XDG_RUNTIME_DIR", XDG_RUNTIME_DIR)
+
+if not os.environ.get("DISPLAY"):
+    try:
+        subprocess.Popen(
+            ["Xvfb", ":99", "-screen", "0", "1024x768x24"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        os.environ["DISPLAY"] = ":99"
+        time.sleep(0.5)
+    except FileNotFoundError:
+        pass
+
 
 def parse_drawing(file_path: str) -> ExtractionResult:
     warnings: list[str] = []
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".dwg":
+        os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = ODA_PLUGIN_PATH
+        os.environ["XDG_RUNTIME_DIR"] = XDG_RUNTIME_DIR
         try:
             from ezdxf.addons import odafc
             doc = odafc.readfile(file_path)

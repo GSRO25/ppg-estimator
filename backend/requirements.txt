@@ -11,3 +11,6 @@ pymupdf==1.25.5
 opencv-python-headless==4.11.0.86
 numpy>=2.0
 pillow>=11.0
+ultralytics>=8.3
+paddlepaddle-gpu==2.6.2
+paddleocr>=2.7,<3

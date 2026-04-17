@@ -1,5 +1,6 @@
 import os
 import tempfile
+import traceback
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.services.dwg_parser import parse_drawing
 from app.models.extraction import ExtractionResult
@@ -22,6 +23,9 @@ async def extract_dwg(file: UploadFile = File(...)):
         result = parse_drawing(tmp_path)
         return result
     except Exception as e:
+        print("=== EXTRACTION ERROR ===", flush=True)
+        traceback.print_exc()
+        print("=== END ERROR ===", flush=True)
         raise HTTPException(500, str(e))
     finally:
         os.unlink(tmp_path)
