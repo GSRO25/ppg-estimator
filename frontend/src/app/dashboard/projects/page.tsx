@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { query } from '@/lib/db';
 import type { Project } from '@/types/project';
 import { formatDate } from '@/lib/utils';
+import DeleteProjectButton from '@/components/delete-project-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,7 @@ export default async function ProjectsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                <th className="px-6 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -56,6 +58,9 @@ export default async function ProjectsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{formatDate(project.created_at)}</td>
+                  <td className="px-6 py-4 text-right">
+                    <DeleteProjectButton projectId={project.id} projectName={project.name} />
+                  </td>
                 </tr>
               ))}
             </tbody>

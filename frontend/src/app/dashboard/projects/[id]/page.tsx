@@ -20,6 +20,34 @@ async function ExtractButton({ projectId }: { projectId: number }) {
   );
 }
 
+async function RerunExtractionButton({ projectId }: { projectId: number }) {
+  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+  return (
+    <form action={async () => {
+      'use server';
+      await fetch(`${baseUrl}/api/projects/${projectId}/drawings/reset`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/projects/${projectId}/drawings/extract`, { method: 'POST' });
+    }}>
+      <button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm font-medium">
+        Re-run Extraction
+      </button>
+    </form>
+  );
+}
+
+async function GenerateTakeoffButton({ projectId }: { projectId: number }) {
+  return (
+    <form action={async () => {
+      'use server';
+      await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/projects/${projectId}/takeoff`, { method: 'POST' });
+    }}>
+      <button type="submit" className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm font-medium">
+        Generate Takeoff
+      </button>
+    </form>
+  );
+}
+
 const statusColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
   processing: 'bg-yellow-100 text-yellow-700',
@@ -49,6 +77,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         </div>
         <div className="flex gap-3">
           {hasPendingDrawings && <ExtractButton projectId={project.id} />}
+          {hasCompleteDrawings && <RerunExtractionButton projectId={project.id} />}
+          {hasCompleteDrawings && <GenerateTakeoffButton projectId={project.id} />}
           {hasCompleteDrawings && (
             <Link href={`/dashboard/projects/${id}/takeoff`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium">
               View Takeoff
