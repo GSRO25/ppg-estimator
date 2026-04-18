@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     generatedAt: new Date().toISOString(),
   });
 
-  const buffer = await renderToBuffer(pdfElement);
+  const buffer = await renderToBuffer(pdfElement as Parameters<typeof renderToBuffer>[0]);
 
   await query(
     `INSERT INTO estimates (project_id, version) VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM estimates WHERE project_id = $1)) RETURNING id`,
