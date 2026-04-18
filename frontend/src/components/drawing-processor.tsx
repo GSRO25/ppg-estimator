@@ -21,6 +21,9 @@ export default function DrawingProcessor({ projectId, initialDrawings }: Props) 
   const mountedRef = useRef(true);
   useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
+  // Sync state with prop when parent re-fetches (e.g. after upload router.refresh)
+  useEffect(() => { setDrawings(initialDrawings); }, [initialDrawings]);
+
   // Fix 1: Clear interval on unmount to prevent leak
   useEffect(() => {
     return () => {
