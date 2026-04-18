@@ -64,3 +64,9 @@ class ExtractionResult(BaseModel):
     # Optional SVG backdrop rendered from the source DXF/DWG via ezdxf's drawing addon.
     # Embedded behind extracted elements in the viewer to give walls/text/hatches context.
     svg_backdrop: Optional[str] = None
+    # PR3: spatial association of nearby annotations to fixtures/pipes/fittings.
+    # Shape: {"fixtures": {block_name: [text...]}, "pipes": {layer|service: [...]}, "fittings": {...}}
+    annotation_context: Optional[dict] = None
+    # PR3: LLM-parsed legend, schedule tables, and general notes from drawing annotations.
+    # Shape: {"legend": [...], "schedules": [...], "notes": [...], "error"?: str, "skipped_reason"?: str}
+    legend_data: Optional[dict] = None

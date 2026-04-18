@@ -24,6 +24,7 @@ services:
     environment:
       - UPLOAD_DIR=/data/uploads
       - EXPORT_DIR=/data/exports
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - uploads:/data/uploads
       - exports:/data/exports

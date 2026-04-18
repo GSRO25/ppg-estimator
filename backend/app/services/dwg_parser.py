@@ -9,6 +9,8 @@ from app.services.block_counter import count_blocks
 from app.services.polyline_measurer import measure_polylines
 from app.services.fitting_inferrer import infer_fittings
 from app.services.annotation_reader import read_annotations
+from app.services.annotation_associator import associate_annotations
+from app.services.legend_parser import parse_legend
 
 UNITS_MAP = {0: "unitless", 1: "inches", 2: "feet", 4: "mm", 5: "cm", 6: "metres"}
 
@@ -59,6 +61,31 @@ def parse_drawing(file_path: str) -> ExtractionResult:
     # Compute drawing bounds from extracted geometry (fallback: DWG extents)
     bounds = _compute_bounds(pipes, fixtures, fittings, doc)
 
+    annotations = read_annotations(msp)
+
+    # PR3: spatial association of nearby annotations to extracted elements
+    try:
+        annotation_context = associate_annotations(
+            fixtures, pipes, fittings, annotations,
+            bounds.model_dump() if bounds else {},
+        )
+    except Exception as e:  # noqa: BLE001 — never break extraction
+        warnings.append(f"annotation_associator failed: {e}")
+        annotation_context = None
+
+    # PR3: LLM legend/schedule parse (graceful no-op if no API key)
+    try:
+        annotation_dicts = [
+            {"text": a.text, "layer": a.layer, "position": a.position}
+            for a in annotations
+        ]
+        legend_data = parse_legend(annotation_dicts)
+        if isinstance(legend_data, dict) and legend_data.get("error"):
+            warnings.append(f"legend_parser error: {legend_data['error']}")
+    except Exception as e:  # noqa: BLE001 — never break extraction
+        warnings.append(f"legend_parser failed: {e}")
+        legend_data = None
+
     svg_backdrop = _render_dxf_to_svg(doc, warnings)
 
     return ExtractionResult(
@@ -69,10 +96,12 @@ def parse_drawing(file_path: str) -> ExtractionResult:
         fixtures=fixtures,
         pipes=pipes,
         fittings=fittings,
-        annotations=read_annotations(msp),
+        annotations=annotations,
         bounds=bounds,
         warnings=warnings,
         svg_backdrop=svg_backdrop,
+        annotation_context=annotation_context,
+        legend_data=legend_data,
     )
 
 

@@ -27,11 +27,54 @@ interface ExtractionFitting {
   confidence: string;
 }
 
+interface LegendEntry {
+  symbol?: string;
+  description?: string;
+  size?: string;
+  material?: string;
+}
+
+interface AnnotationContext {
+  fixtures?: Record<string, string[]>;
+  pipes?: Record<string, string[]>;
+  fittings?: Record<string, string[]>;
+}
+
+interface LegendData {
+  legend?: LegendEntry[];
+  schedules?: Array<Record<string, unknown>>;
+  notes?: string[];
+}
+
 interface ExtractionResult {
   fixtures: ExtractionFixture[];
   pipes: ExtractionPipe[];
   fittings: ExtractionFitting[];
   bounds?: { min_x: number; min_y: number; max_x: number; max_y: number };
+  annotation_context?: AnnotationContext | null;
+  legend_data?: LegendData | null;
+}
+
+type Confidence = 'high' | 'medium' | 'low';
+
+function bumpConfidence(c: string): Confidence {
+  if (c === 'low') return 'medium';
+  if (c === 'medium') return 'high';
+  return 'high';
+}
+
+function findLegendMatch(legend: LegendEntry[] | undefined, key: string): LegendEntry | undefined {
+  if (!legend || !key) return undefined;
+  const keyLower = key.toLowerCase();
+  return legend.find(l => {
+    const sym = (l.symbol || '').toLowerCase();
+    if (!sym) return false;
+    return sym === keyLower || keyLower.includes(sym) || sym.includes(keyLower);
+  });
+}
+
+function buildSearchString(parts: Array<string | undefined | null>): string {
+  return parts.filter((p): p is string => Boolean(p && p.trim())).join(' ').trim();
 }
 
 // Map service types to sections
@@ -49,8 +92,9 @@ const FIXTURE_SECTION = { number: 13, name: '13. Fitout' };
 
 async function fuzzyMatch(desc: string): Promise<{
   id: number; section_number: number; section_name: string;
-  confidence: 'high' | 'low';
+  confidence: Confidence;
 } | null> {
+  if (!desc || !desc.trim()) return null;
   const rows = await query<{
     id: number; section_number: number; section_name: string; score: string;
   }>(
@@ -128,6 +172,9 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
     const result = drawing.extraction_result;
     if (!result) continue;
 
+    const drawingAnnotationContext = result.annotation_context || undefined;
+    const drawingLegendData = result.legend_data || undefined;
+
     // Fixtures → takeoff items
     for (const fixture of result.fixtures || []) {
       let rateCardItemId = blockToItem[fixture.block_name] || null;
@@ -136,12 +183,21 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       let confidence = fixture.confidence || 'high';
 
       if (!rateCardItemId) {
-        const searchStr = fixture.block_name.replace(/[_-]/g, ' ');
+        const blockKey = fixture.block_name;
+        const nearbyAnnotations = drawingAnnotationContext?.fixtures?.[blockKey] || [];
+        const legendMatch = findLegendMatch(drawingLegendData?.legend, blockKey);
+        const searchStr = buildSearchString([
+          blockKey.replace(/[_-]/g, ' '),
+          legendMatch?.description,
+          legendMatch?.size,
+          legendMatch?.material,
+          ...nearbyAnnotations.slice(0, 3),
+        ]);
         const match = await fuzzyMatch(searchStr);
         if (match) {
           rateCardItemId = match.id;
           fixtureSection = { number: match.section_number, name: match.section_name };
-          confidence = match.confidence;
+          confidence = legendMatch ? bumpConfidence(match.confidence) : match.confidence;
         }
       }
 
@@ -170,12 +226,21 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       let confidence = pipe.confidence || 'high';
 
       if (!pipeRateItemId) {
-        const searchStr = `${pipe.service_type.replace(/_/g, ' ')} pipe ${pipe.layer}`;
+        const pipeKey = `${pipe.layer}|${pipe.service_type}`;
+        const nearbyAnnotations = drawingAnnotationContext?.pipes?.[pipeKey] || [];
+        const legendMatch = findLegendMatch(drawingLegendData?.legend, pipe.layer);
+        const searchStr = buildSearchString([
+          `${pipe.service_type.replace(/_/g, ' ')} pipe ${pipe.layer}`,
+          legendMatch?.description,
+          legendMatch?.size,
+          legendMatch?.material,
+          ...nearbyAnnotations.slice(0, 3),
+        ]);
         const match = await fuzzyMatch(searchStr);
         if (match) {
           pipeRateItemId = match.id;
           section = { number: match.section_number, name: match.section_name };
-          confidence = match.confidence;
+          confidence = legendMatch ? bumpConfidence(match.confidence) : match.confidence;
         }
       }
 
@@ -203,12 +268,22 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       let confidence = fitting.confidence || 'high';
 
       if (!fittingRateItemId) {
-        const searchStr = `${fitting.fitting_type.replace(/[_-]/g, ' ')} ${fitting.service_type.replace(/_/g, ' ')}`;
+        const fittingKey = `${fitting.fitting_type}|${fitting.layer}`;
+        const nearbyAnnotations = drawingAnnotationContext?.fittings?.[fittingKey] || [];
+        const legendMatch = findLegendMatch(drawingLegendData?.legend, fitting.layer)
+          || findLegendMatch(drawingLegendData?.legend, fitting.fitting_type);
+        const searchStr = buildSearchString([
+          `${fitting.fitting_type.replace(/[_-]/g, ' ')} ${fitting.service_type.replace(/_/g, ' ')}`,
+          legendMatch?.description,
+          legendMatch?.size,
+          legendMatch?.material,
+          ...nearbyAnnotations.slice(0, 3),
+        ]);
         const match = await fuzzyMatch(searchStr);
         if (match) {
           fittingRateItemId = match.id;
           section = { number: match.section_number, name: match.section_name };
-          confidence = match.confidence;
+          confidence = legendMatch ? bumpConfidence(match.confidence) : match.confidence;
         }
       }
 
