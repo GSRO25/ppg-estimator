@@ -5,12 +5,15 @@ import React from 'react';
 import EstimateDocument from '@/lib/pdf/estimate-document';
 import { calculateSectionTotals, calculateGrandTotal, type TakeoffItemWithRates } from '@/lib/rate-engine';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const marginPercent = body.marginPercent ?? 10;
 
-  const [project] = await query<{ name: string; client: string }>(
+  const [project] = await query<{ name: string; client: string | null }>(
     'SELECT name, client FROM projects WHERE id = $1', [id]
   );
   if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
@@ -43,12 +46,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     [id]
   );
 
-  const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
-  return new NextResponse(buffer as unknown as BodyInit, {
+  const safeName = project.name
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
       'Content-Disposition': `attachment; filename="${safeName}_estimate.pdf"`,
       'Content-Type': 'application/pdf',
+      'Content-Length': String(buffer.length),
     },
   });
 }

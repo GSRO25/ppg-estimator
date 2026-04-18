@@ -18,11 +18,7 @@ function fmt(n: number) {
 }
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}/${month}/${year}`;
+  return new Date(iso).toLocaleDateString('en-AU', { timeZone: 'Australia/Sydney', day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 export interface EstimateDocumentProps {
@@ -460,11 +456,11 @@ function SectionDetailPage({
         <Text style={styles.sectionBannerTitle}>
           {section.sectionNumber}. {section.sectionName}
         </Text>
-        <Text style={styles.sectionBannerSub}>{section.items.length} line items</Text>
+        <Text style={styles.sectionBannerSub}>{section.items.length} {section.items.length === 1 ? 'line item' : 'line items'}</Text>
       </View>
 
       {/* Detail Table Header */}
-      <View style={styles.tableHeader}>
+      <View style={styles.tableHeader} fixed>
         <Text style={[styles.tableHeaderCell, { flex: DET_FLEX.description }]}>Description</Text>
         <Text style={[styles.tableHeaderCell, { flex: DET_FLEX.uom }]}>UOM</Text>
         <Text style={[styles.tableHeaderCell, { flex: DET_FLEX.labourRate, textAlign: 'right' }]}>L/hr</Text>
