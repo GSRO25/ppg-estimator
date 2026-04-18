@@ -23,9 +23,22 @@ interface Props {
   drawingId: number;
   highlight: Highlight | null;
   onClose: () => void;
+  // NEW:
+  mode?: 'modal' | 'inline';
+  onHoverRegion?: (region: { type: string; key: string } | null) => void;
+  onClickRegion?: (region: { type: string; key: string }) => void;
+  hoveredRegion?: { type: string; key: string } | null;
 }
 
-export default function DrawingViewer({ drawingId, highlight, onClose }: Props) {
+export default function DrawingViewer({
+  drawingId,
+  highlight,
+  onClose,
+  mode = 'modal',
+  onHoverRegion,
+  onClickRegion,
+  hoveredRegion = null,
+}: Props) {
   const [geom, setGeom] = useState<DrawingGeometry | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -112,29 +125,33 @@ export default function DrawingViewer({ drawingId, highlight, onClose }: Props) 
     return Math.max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y) * 0.0005;
   }, [bounds]);
 
-  return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-white">
-      <div className="flex justify-between items-center px-5 py-3 border-b">
-        <div>
-          <div className="text-xs text-gray-400 uppercase">Drawing</div>
-          <div className="text-sm font-semibold text-gray-900">{geom?.filename || `Drawing #${drawingId}`}</div>
-          {highlight && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              Highlighting: {highlight.type === 'fixture'
-                ? `${highlight.block_name} · ${highlight.locations.length} locations`
-                : highlight.type === 'pipe'
-                  ? `${highlight.layer} · ${highlight.segments.length} segments`
-                  : `${highlight.layer} · ${highlight.positions.length} fittings`}
-            </div>
-          )}
-        </div>
-        <div className="flex gap-3 items-center">
-          <span className="text-xs text-gray-400">Scroll to zoom · drag to pan</span>
-          <button onClick={onClose} className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200">Close</button>
-        </div>
-      </div>
+  const isInline = mode === 'inline';
 
-      <div className="flex-1 bg-slate-50 overflow-hidden">
+  return (
+    <div className={isInline ? 'flex flex-col w-full h-full' : 'fixed inset-0 z-[60] flex flex-col bg-white'}>
+      {!isInline && (
+        <div className="flex justify-between items-center px-5 py-3 border-b">
+          <div>
+            <div className="text-xs text-gray-400 uppercase">Drawing</div>
+            <div className="text-sm font-semibold text-gray-900">{geom?.filename || `Drawing #${drawingId}`}</div>
+            {highlight && (
+              <div className="text-xs text-gray-500 mt-0.5">
+                Highlighting: {highlight.type === 'fixture'
+                  ? `${highlight.block_name} · ${highlight.locations.length} locations`
+                  : highlight.type === 'pipe'
+                    ? `${highlight.layer} · ${highlight.segments.length} segments`
+                    : `${highlight.layer} · ${highlight.positions.length} fittings`}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3 items-center">
+            <span className="text-xs text-gray-400">Scroll to zoom · drag to pan</span>
+            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200">Close</button>
+          </div>
+        </div>
+      )}
+
+      <div className={`flex-1 overflow-hidden ${isInline ? 'bg-slate-900' : 'bg-slate-50'}`}>
         {err && <div className="p-8 text-sm text-red-500">Failed to load: {err}</div>}
         {!geom && !err && <div className="p-8 text-sm text-gray-400">Loading drawing…</div>}
         {geom && !bounds && <div className="p-8 text-sm text-gray-400">No geometry available for this drawing.</div>}
@@ -161,19 +178,38 @@ export default function DrawingViewer({ drawingId, highlight, onClose }: Props) 
               />
 
               {/* Context: all pipes (faded) */}
-              {geom.pipes.flatMap(p => p.segments.map((s, i) => (
-                <line
-                  key={`p-${p.layer}-${i}`}
-                  x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
-                  stroke="#cbd5e1" strokeWidth={strokeBase}
-                />
-              )))}
+              {geom.pipes.flatMap(p => p.segments.map((s, i) => {
+                const isHovered = hoveredRegion?.type === 'pipe' && hoveredRegion.key === p.layer;
+                return (
+                  <line
+                    key={`p-${p.layer}-${i}`}
+                    x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
+                    stroke={isHovered ? '#F59E0B' : '#cbd5e1'}
+                    strokeWidth={isHovered ? strokeBase * 2 : strokeBase}
+                    className="cursor-pointer"
+                    onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
+                    onMouseLeave={() => onHoverRegion?.(null)}
+                    onClick={(e) => { e.stopPropagation(); onClickRegion?.({ type: 'pipe', key: p.layer }); }}
+                  />
+                );
+              }))}
 
               {/* Context: fixtures (faded dots) */}
               {geom.fixtures.flatMap(f =>
-                f.locations.map((loc, i) => (
-                  <circle key={`fx-${f.block_name}-${i}`} cx={loc[0]} cy={loc[1]} r={pointRadius} fill="#cbd5e1" />
-                ))
+                f.locations.map((loc, i) => {
+                  const isHovered = hoveredRegion?.type === 'fixture' && hoveredRegion.key === f.block_name;
+                  return (
+                    <circle
+                      key={`fx-${f.block_name}-${i}`}
+                      cx={loc[0]} cy={loc[1]} r={pointRadius}
+                      fill={isHovered ? '#F59E0B' : '#cbd5e1'}
+                      className="cursor-pointer"
+                      onMouseEnter={() => onHoverRegion?.({ type: 'fixture', key: f.block_name })}
+                      onMouseLeave={() => onHoverRegion?.(null)}
+                      onClick={(e) => { e.stopPropagation(); onClickRegion?.({ type: 'fixture', key: f.block_name }); }}
+                    />
+                  );
+                })
               )}
 
               {/* Highlight layer on top */}
