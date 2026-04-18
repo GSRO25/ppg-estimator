@@ -30,4 +30,5 @@ RUN (dpkg -i /tmp/ODAFileConverter*.deb || (apt-get update && apt-get install -f
 COPY . .
 
 EXPOSE 8000
-CMD ["xvfb-run", "-a", "--server-args=-screen 0 1024x768x24", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV DISPLAY=:99
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1024x768x24 -nolisten tcp & exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
