@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import type { TakeoffRow } from './takeoff-grid';
-import DrawingViewer from './drawing-viewer';
 
 interface RateItem {
   id: number;
@@ -20,14 +19,15 @@ interface Props {
   onClose: () => void;
   onSaved: (updatedRow: TakeoffRow) => void;
   projectId: string;
+  mode?: 'drawer' | 'modal';
+  onRequestHighlight?: (region: TakeoffRow['drawing_region']) => void;
 }
 
-export default function TakeoffRowEditor({ row, onClose, onSaved, projectId }: Props) {
+export default function TakeoffRowEditor({ row, onClose, onSaved, projectId, mode = 'drawer', onRequestHighlight }: Props) {
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<RateItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [remember, setRemember] = useState(true);
-  const [showViewer, setShowViewer] = useState(false);
 
   // Reset search whenever a new row is opened
   useEffect(() => {
@@ -88,6 +88,107 @@ export default function TakeoffRowEditor({ row, onClose, onSaved, projectId }: P
     onClose();
   }
 
+  const innerContent = (
+    <>
+      <div className="p-5 border-b">
+        <div className="flex justify-between items-start">
+          <div>
+            <div className="text-xs text-gray-400 uppercase">Edit Takeoff Row</div>
+            <div className="text-base font-semibold text-gray-900 mt-1">{row.description}</div>
+            <div className="text-xs text-gray-500 mt-1">
+              Currently in: <span className="font-medium">{row.section_name}</span> · QTY {row.final_qty} {row.uom}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+
+        {row.drawing_id && row.drawing_region && onRequestHighlight && (
+          <button
+            onClick={() => onRequestHighlight(row.drawing_region)}
+            className="mt-3 px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700"
+          >
+            📐 Highlight in drawing
+          </button>
+        )}
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <input
+            autoFocus
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search rate card (e.g. 100mm PVC, Basin)…"
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+          {row.rate_card_item_id && (
+            <button
+              onClick={unassign}
+              disabled={saving}
+              className="text-xs text-red-500 hover:text-red-700 whitespace-nowrap disabled:opacity-50"
+            >
+              Unassign
+            </button>
+          )}
+        </div>
+
+        <label className="mt-3 flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+          <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+          Remember this mapping (apply to future extractions with the same CAD name)
+        </label>
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        {results.length === 0 ? (
+          <div className="p-6 text-center text-sm text-gray-400">No matches</div>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {results.map(item => {
+              const isCurrent = item.id === row.rate_card_item_id;
+              return (
+                <li key={item.id}>
+                  <button
+                    onClick={() => assignItem(item)}
+                    disabled={saving || isCurrent}
+                    className={`w-full text-left px-5 py-3 hover:bg-blue-50 disabled:opacity-60 disabled:cursor-default ${isCurrent ? 'bg-blue-50' : ''}`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-900">{item.description}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {item.section_name} · {item.uom || '—'}
+                        </div>
+                      </div>
+                      <div className="text-xs text-right text-gray-600 tabular-nums whitespace-nowrap ml-4">
+                        <div>L: ${item.labour_rate.toFixed(2)}</div>
+                        <div>M: ${item.material_rate.toFixed(2)}</div>
+                        {item.plant_rate > 0 && <div>P: ${item.plant_rate.toFixed(2)}</div>}
+                      </div>
+                    </div>
+                    {isCurrent && <div className="text-xs text-blue-600 mt-1">✓ current selection</div>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+
+  if (mode === 'drawer') {
+    return (
+      <div
+        className="absolute bottom-0 left-0 right-0 bg-white shadow-2xl flex flex-col rounded-t-xl border-t border-slate-200 z-30 overflow-hidden"
+        style={{ maxHeight: '55%' }}
+      >
+        <div className="flex justify-center pt-2 pb-1 shrink-0">
+          <div className="w-12 h-1.5 bg-slate-300 rounded-full cursor-pointer" onClick={onClose} />
+        </div>
+        {innerContent}
+      </div>
+    );
+  }
+
+  // modal mode: existing full-screen overlay
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
       <div className="flex-1 bg-black/30" />
@@ -95,96 +196,8 @@ export default function TakeoffRowEditor({ row, onClose, onSaved, projectId }: P
         className="w-[560px] bg-white shadow-2xl flex flex-col h-full"
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-5 border-b">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="text-xs text-gray-400 uppercase">Edit Takeoff Row</div>
-              <div className="text-base font-semibold text-gray-900 mt-1">{row.description}</div>
-              <div className="text-xs text-gray-500 mt-1">
-                Currently in: <span className="font-medium">{row.section_name}</span> · QTY {row.final_qty} {row.uom}
-              </div>
-            </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-          </div>
-
-          {row.drawing_id && row.drawing_region && (
-            <button
-              onClick={() => setShowViewer(true)}
-              className="mt-3 px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700"
-            >
-              📐 View in drawing
-            </button>
-          )}
-
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <input
-              autoFocus
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search rate card (e.g. 100mm PVC, Basin)…"
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
-            />
-            {row.rate_card_item_id && (
-              <button
-                onClick={unassign}
-                disabled={saving}
-                className="text-xs text-red-500 hover:text-red-700 whitespace-nowrap disabled:opacity-50"
-              >
-                Unassign
-              </button>
-            )}
-          </div>
-
-          <label className="mt-3 flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-            Remember this mapping (apply to future extractions with the same CAD name)
-          </label>
-        </div>
-
-        <div className="flex-1 overflow-auto">
-          {results.length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-400">No matches</div>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {results.map(item => {
-                const isCurrent = item.id === row.rate_card_item_id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      onClick={() => assignItem(item)}
-                      disabled={saving || isCurrent}
-                      className={`w-full text-left px-5 py-3 hover:bg-blue-50 disabled:opacity-60 disabled:cursor-default ${isCurrent ? 'bg-blue-50' : ''}`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-gray-900">{item.description}</div>
-                          <div className="text-xs text-gray-500 mt-0.5">
-                            {item.section_name} · {item.uom || '—'}
-                          </div>
-                        </div>
-                        <div className="text-xs text-right text-gray-600 tabular-nums whitespace-nowrap ml-4">
-                          <div>L: ${item.labour_rate.toFixed(2)}</div>
-                          <div>M: ${item.material_rate.toFixed(2)}</div>
-                          {item.plant_rate > 0 && <div>P: ${item.plant_rate.toFixed(2)}</div>}
-                        </div>
-                      </div>
-                      {isCurrent && <div className="text-xs text-blue-600 mt-1">✓ current selection</div>}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+        {innerContent}
       </div>
-
-      {showViewer && row.drawing_id && row.drawing_region && (
-        <DrawingViewer
-          drawingId={row.drawing_id}
-          highlight={row.drawing_region as Parameters<typeof DrawingViewer>[0]['highlight']}
-          onClose={() => setShowViewer(false)}
-        />
-      )}
     </div>
   );
 }
