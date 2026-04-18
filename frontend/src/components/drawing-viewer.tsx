@@ -105,7 +105,8 @@ export default function DrawingViewer({
   });
 
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
-  const [showBackdrop, setShowBackdrop] = useState(true);
+  const [showBackdrop, setShowBackdrop] = useState(false);
+  const [showLayerPanel, setShowLayerPanel] = useState(false);
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState<Pt[]>([]);
   const [cursorCad, setCursorCad] = useState<Pt | null>(null);
@@ -169,6 +170,12 @@ export default function DrawingViewer({
       } else if (e.key === 'e' || e.key === 'E') {
         e.preventDefault();
         zoomExtents();
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setShowLayerPanel(v => !v);
+      } else if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        setShowBackdrop(v => !v);
       } else if (e.key === 'Escape') {
         if (measureMode || measurePoints.length > 0) {
           setMeasureMode(false);
@@ -641,7 +648,7 @@ export default function DrawingViewer({
         )}
 
         {/* Layer toggle panel — top-left */}
-        {geom?.layers && geom.layers.length > 0 && (() => {
+        {showLayerPanel && geom?.layers && geom.layers.length > 0 && (() => {
           const JUNK_PATTERNS = [/^defpoints$/i, /^0$/, /titleblock/i, /viewport/i, /^ashade$/i, /^vp/i];
           const cleanLayers = geom.layers.filter(l => !JUNK_PATTERNS.some(r => r.test(l)));
           if (cleanLayers.length === 0) return null;
@@ -668,6 +675,7 @@ export default function DrawingViewer({
           <div className="absolute top-2 right-2 flex gap-1 bg-white/95 rounded-md shadow-md p-1 z-10">
             <ToolBtn active={false} onClick={zoomExtents} title="Zoom Extents (E)">⛶</ToolBtn>
             <ToolBtn active={measureMode} onClick={toggleMeasure} title="Measure (M)">📐</ToolBtn>
+            <ToolBtn active={showLayerPanel} onClick={() => setShowLayerPanel(v => !v)} title="Toggle Layers Panel (L)">📋</ToolBtn>
             <ToolBtn active={showBackdrop} onClick={() => setShowBackdrop(v => !v)} title="Toggle Drawing Backdrop (B)">🗺️</ToolBtn>
             <ToolBtn active={false} onClick={clearSelection} title="Clear Selection (Esc)">↶</ToolBtn>
           </div>
