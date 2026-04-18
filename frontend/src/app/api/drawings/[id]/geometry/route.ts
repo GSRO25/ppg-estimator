@@ -14,6 +14,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     fittings?: { layer: string; fitting_type: string; positions?: [number, number][] }[];
     layers?: ({ name: string; entity_count?: number; color?: number } | string)[];
     svg_backdrop?: string | null;
+    svg_backdrop_viewbox?: [number, number, number, number] | number[] | null;
   } | null }>(
     'SELECT id, filename, extraction_result FROM drawings WHERE id = $1',
     [id]
@@ -61,5 +62,6 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     fittings: (r.fittings || []).map(f => ({ layer: f.layer, fitting_type: f.fitting_type, positions: f.positions || [] })),
     layers,
     svg_backdrop: r.svg_backdrop ?? null,
+    svg_backdrop_viewbox: r.svg_backdrop_viewbox ?? null,
   });
 }

@@ -13,6 +13,7 @@ interface DrawingGeometry {
   fittings: { layer: string; fitting_type: string; positions: Pt[] }[];
   layers?: string[];
   svg_backdrop?: string | null;
+  svg_backdrop_viewbox?: [number, number, number, number] | null;
 }
 
 // drawing_region stored on takeoff_items
@@ -449,17 +450,54 @@ export default function DrawingViewer({
             {/* Flip Y axis so drawing orientation matches CAD conventions */}
             <g transform={`translate(0, ${bounds.min_y + bounds.max_y}) scale(1, -1)`}>
               {/* Backdrop SVG from ezdxf — placed first so it sits behind everything else.
-                  Faded so the extracted/interactive layer reads on top. */}
-              {backdropInner && showBackdrop && (
-                <g transform={`scale(1, -1) translate(0, ${-(bounds.min_y + bounds.max_y)})`}>
-                  <g
-                    className="backdrop"
-                    opacity={0.35}
-                    style={{ pointerEvents: 'none' }}
-                    dangerouslySetInnerHTML={{ __html: backdropInner }}
-                  />
-                </g>
-              )}
+                  Faded so the extracted/interactive layer reads on top.
+
+                  ezdxf's SVGBackend emits its content in its own internal page
+                  coords (Y-down) inside a viewBox that does NOT match CAD
+                  coords. To align with extracted geometry we derive a matrix
+                  transform from the viewBox + CAD bounds that maps ezdxf-space
+                  into CAD-space (Y-up). The outer Y-flip group then mirrors
+                  both backdrop and extracted geometry together so the text
+                  reads correctly. */}
+              {backdropInner && showBackdrop && (() => {
+                const vb = geom?.svg_backdrop_viewbox;
+                if (vb && vb.length === 4) {
+                  const [vx, vy, vw, vh] = vb;
+                  const cadW = bounds.max_x - bounds.min_x;
+                  const cadH = bounds.max_y - bounds.min_y;
+                  if (vw > 0 && vh > 0 && cadW > 0 && cadH > 0) {
+                    const sx = cadW / vw;
+                    const sy = cadH / vh; // absolute; Y is flipped via the -sy entry below
+                    // Composed transform applied to ezdxf-space coordinates:
+                    //   translate(min_x, max_y) · scale(sx, -sy) · translate(-vx, -vy)
+                    const tx = bounds.min_x - vx * sx;
+                    const ty = bounds.max_y + vy * sy;
+                    return (
+                      <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
+                        <g
+                          className="backdrop"
+                          opacity={0.35}
+                          style={{ pointerEvents: 'none' }}
+                          dangerouslySetInnerHTML={{ __html: backdropInner }}
+                        />
+                      </g>
+                    );
+                  }
+                }
+                // Legacy fallback for extractions without svg_backdrop_viewbox:
+                // use the old counter-flip so the backdrop at least renders,
+                // even if it is not perfectly aligned.
+                return (
+                  <g transform={`scale(1, -1) translate(0, ${-(bounds.min_y + bounds.max_y)})`}>
+                    <g
+                      className="backdrop"
+                      opacity={0.35}
+                      style={{ pointerEvents: 'none' }}
+                      dangerouslySetInnerHTML={{ __html: backdropInner }}
+                    />
+                  </g>
+                );
+              })()}
 
               {/* Bounds outline */}
               <rect

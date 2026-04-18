@@ -1,5 +1,6 @@
 import ezdxf
 import os
+import re
 import subprocess
 import time
 import traceback
@@ -86,7 +87,9 @@ def parse_drawing(file_path: str) -> ExtractionResult:
         warnings.append(f"legend_parser failed: {e}")
         legend_data = None
 
-    svg_backdrop = _render_dxf_to_svg(doc, warnings)
+    svg_render = _render_dxf_to_svg(doc, warnings)
+    svg_backdrop = svg_render["svg"] if svg_render else None
+    svg_backdrop_viewbox = svg_render["viewbox"] if svg_render else None
 
     return ExtractionResult(
         filename=os.path.basename(file_path),
@@ -100,17 +103,19 @@ def parse_drawing(file_path: str) -> ExtractionResult:
         bounds=bounds,
         warnings=warnings,
         svg_backdrop=svg_backdrop,
+        svg_backdrop_viewbox=svg_backdrop_viewbox,
         annotation_context=annotation_context,
         legend_data=legend_data,
     )
 
 
-def _render_dxf_to_svg(doc, warnings: list[str]) -> str | None:
+def _render_dxf_to_svg(doc, warnings: list[str]) -> dict | None:
     """Render the DXF modelspace to an SVG string via ezdxf's drawing addon.
 
-    Returns None on failure (the viewer will simply omit the backdrop).
-    Layer names are emitted as CSS classes on the layer <g> elements so the
-    frontend can toggle them with display:none.
+    Returns a dict ``{"svg": str, "viewbox": [x, y, w, h]}`` on success. The
+    viewBox metadata is required so the frontend can align the backdrop with
+    the extracted geometry (which lives in CAD coordinates). Returns None on
+    failure (the viewer will simply omit the backdrop).
     """
     try:
         from ezdxf.addons.drawing import Frontend, RenderContext
@@ -130,9 +135,27 @@ def _render_dxf_to_svg(doc, warnings: list[str]) -> str | None:
         try:
             from ezdxf.addons.drawing.layout import Page
             page = Page(width=0, height=0)  # 0,0 = auto-size from bounds
-            return backend.get_string(page)
+            svg_str = backend.get_string(page)
         except (ImportError, TypeError):
-            return backend.get_string()
+            svg_str = backend.get_string()
+
+        # Parse the viewBox from the outer <svg> tag so the frontend can
+        # map ezdxf's internal coords back onto CAD coords.
+        m = re.search(r'<svg\b[^>]*\bviewBox="([^"]+)"', svg_str)
+        if not m:
+            warnings.append("svg_backdrop has no viewBox; cannot align")
+            return None
+        parts = m.group(1).split()
+        if len(parts) != 4:
+            warnings.append(f"svg_backdrop viewBox malformed: {m.group(1)}")
+            return None
+        try:
+            vx, vy, vw, vh = [float(p) for p in parts]
+        except ValueError:
+            warnings.append(f"svg_backdrop viewBox non-numeric: {m.group(1)}")
+            return None
+
+        return {"svg": svg_str, "viewbox": [vx, vy, vw, vh]}
     except Exception as e:  # noqa: BLE001 — backdrop is best-effort
         warnings.append(f"svg_backdrop render failed: {e}")
         traceback.print_exc()
