@@ -21,6 +21,13 @@ export type Highlight =
   | { type: 'pipe'; layer: string; segments: [Pt, Pt][] }
   | { type: 'fitting'; layer: string; positions: Pt[] };
 
+// Currently-selected entity in the viewer (visual-only, separate from
+// the parent's editingRow state).
+type SelectedEntity =
+  | { kind: 'fixture'; block_name: string; layer: string; location: Pt }
+  | { kind: 'pipe'; layer: string; service_type: string; segment: [Pt, Pt]; length: number }
+  | { kind: 'fitting'; fitting_type: string; layer: string; position: Pt };
+
 interface Props {
   drawingId: number;
   highlight: Highlight | null;
@@ -51,6 +58,35 @@ function formatDistance(d: number): string {
   return `${(d / 1000).toFixed(2)} m`;
 }
 
+function formatCoord(p: Pt | undefined | null): string {
+  if (!p) return '';
+  return `X: ${Math.round(p[0])}, Y: ${Math.round(p[1])}`;
+}
+
+// Find the closest snap candidate to the cursor within a given CAD-unit
+// radius. Returns null when nothing is within range.
+function findSnapPoint(cursor: Pt, candidates: Pt[], radiusCad: number): Pt | null {
+  let best: Pt | null = null;
+  let bestDist = radiusCad;
+  for (const c of candidates) {
+    const d = Math.hypot(c[0] - cursor[0], c[1] - cursor[1]);
+    if (d < bestDist) { best = c; bestDist = d; }
+  }
+  return best;
+}
+
+// Inline toolbar button — small square with active state.
+function ToolBtn({ active, onClick, title, children }: { active: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`w-8 h-8 flex items-center justify-center text-sm rounded ${active ? 'bg-ppg-amber text-white' : 'hover:bg-slate-100 text-slate-700'}`}
+    >{children}</button>
+  );
+}
+
 export default function DrawingViewer({
   drawingId,
   highlight,
@@ -72,6 +108,8 @@ export default function DrawingViewer({
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState<Pt[]>([]);
   const [cursorCad, setCursorCad] = useState<Pt | null>(null);
+  const [snapPoint, setSnapPoint] = useState<Pt | null>(null);
+  const [selected, setSelected] = useState<SelectedEntity | null>(null);
 
   useEffect(() => {
     fetch(`/api/drawings/${drawingId}/geometry`)
@@ -94,25 +132,55 @@ export default function DrawingViewer({
     panState.current.vb = vb;
   }, [geom]);
 
-  // Keyboard: M toggles measure, Esc cancels.
+  // Reset to fit-all view. Same computation as the initial-load effect.
+  const zoomExtents = useCallback(() => {
+    if (!geom?.bounds) return;
+    const b = geom.bounds;
+    const w = b.max_x - b.min_x;
+    const h = b.max_y - b.min_y;
+    const pad = Math.max(w, h) * 0.05;
+    const vb = [b.min_x - pad, b.min_y - pad, w + pad * 2, h + pad * 2];
+    setViewBox(vb.join(' '));
+    panState.current.vb = vb;
+  }, [geom]);
+
+  const toggleMeasure = useCallback(() => {
+    setMeasureMode(m => !m);
+    setMeasurePoints([]);
+    setSnapPoint(null);
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelected(null);
+  }, []);
+
+  // Keyboard:
+  //   M  → toggle measure
+  //   E  → zoom-extents
+  //   Esc → cancel measure first; otherwise clear selection.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
       if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
-        setMeasureMode(m => !m);
-        setMeasurePoints([]);
+        toggleMeasure();
+      } else if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        zoomExtents();
       } else if (e.key === 'Escape') {
         if (measureMode || measurePoints.length > 0) {
           setMeasureMode(false);
           setMeasurePoints([]);
+          setSnapPoint(null);
+        } else if (selected) {
+          setSelected(null);
         }
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [measureMode, measurePoints.length]);
+  }, [measureMode, measurePoints.length, selected, toggleMeasure, zoomExtents]);
 
   // Convert a screen-space mouse event to CAD-space coordinates, accounting
   // for the Y-flip transform applied to the inner <g>.
@@ -130,6 +198,31 @@ export default function DrawingViewer({
     const cadY = (geom.bounds.min_y + geom.bounds.max_y) - p.y;
     return [cadX, cadY];
   }, [geom]);
+
+  // Build the snap-candidate list (visible fixtures, pipe endpoints +
+  // midpoints, fittings) — recomputed when geometry or layer visibility
+  // changes. Cheap enough at typical drawing sizes.
+  const snapCandidates = useMemo<Pt[]>(() => {
+    if (!geom) return [];
+    const out: Pt[] = [];
+    for (const f of geom.fixtures) {
+      if (hiddenLayers.has(f.layer)) continue;
+      for (const loc of f.locations) out.push(loc);
+    }
+    for (const p of geom.pipes) {
+      if (hiddenLayers.has(p.layer)) continue;
+      for (const s of p.segments) {
+        out.push(s[0]);
+        out.push(s[1]);
+        out.push([(s[0][0] + s[1][0]) / 2, (s[0][1] + s[1][1]) / 2]);
+      }
+    }
+    for (const f of geom.fittings) {
+      if (hiddenLayers.has(f.layer)) continue;
+      for (const pos of f.positions || []) out.push(pos);
+    }
+    return out;
+  }, [geom, hiddenLayers]);
 
   // Zoom with mouse wheel
   function handleWheel(e: React.WheelEvent<SVGSVGElement>) {
@@ -163,9 +256,24 @@ export default function DrawingViewer({
     panState.current.vb = viewBox.split(' ').map(Number);
   }
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    // Always keep the live cursor coord up-to-date for the readout badge.
+    const cad = screenToCad(e.clientX, e.clientY);
+    setCursorCad(cad);
+
     if (measureMode) {
-      const cad = screenToCad(e.clientX, e.clientY);
-      setCursorCad(cad);
+      // Compute the snap radius in CAD units = ~10 screen pixels, derived
+      // from the current viewBox width vs. SVG client width.
+      const svg = svgRef.current;
+      if (svg && cad) {
+        const rect = svg.getBoundingClientRect();
+        const vb = panState.current.vb;
+        const cadPerPx = (vb && vb[2] && rect.width) ? (vb[2] / rect.width) : 1;
+        const radiusCad = cadPerPx * 10;
+        const snap = findSnapPoint(cad, snapCandidates, radiusCad);
+        setSnapPoint(snap);
+      } else {
+        setSnapPoint(null);
+      }
       return;
     }
     if (!panState.current.dragging) return;
@@ -186,14 +294,22 @@ export default function DrawingViewer({
   function handleMouseUp() {
     panState.current.dragging = false;
   }
+  function handleMouseLeave() {
+    panState.current.dragging = false;
+    setCursorCad(null);
+    setSnapPoint(null);
+  }
 
   function handleSvgClick(e: React.MouseEvent<SVGSVGElement>) {
     if (!measureMode) return;
     const cad = screenToCad(e.clientX, e.clientY);
     if (!cad) return;
+    // Prefer the snapped coordinate when available so users get exact
+    // endpoints/midpoints rather than free-cursor positions.
+    const point: Pt = snapPoint ?? cad;
     setMeasurePoints(pts => {
-      if (pts.length === 0 || pts.length >= 2) return [cad];
-      return [pts[0], cad];
+      if (pts.length === 0 || pts.length >= 2) return [point];
+      return [pts[0], point];
     });
   }
 
@@ -216,6 +332,16 @@ export default function DrawingViewer({
     if (!bounds) return 1;
     return Math.max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y) * 0.0005;
   }, [bounds]);
+
+  // Snap indicator size in CAD units = ~6 screen pixels at current zoom.
+  const snapBoxHalf = useMemo(() => {
+    const svg = svgRef.current;
+    if (!svg || !viewBox) return pointRadius;
+    const rect = svg.getBoundingClientRect();
+    const vb = viewBox.split(' ').map(Number);
+    const cadPerPx = (vb[2] && rect.width) ? (vb[2] / rect.width) : 1;
+    return cadPerPx * 3; // 6px wide => half is 3px
+  }, [viewBox, pointRadius]);
 
   const isInline = mode === 'inline';
 
@@ -253,13 +379,22 @@ export default function DrawingViewer({
     [geom, hiddenLayers],
   );
 
+  // The point used for distance display: prefer snap > free cursor.
+  const liveEndpoint: Pt | null = snapPoint ?? cursorCad;
   const measureDist = measurePoints.length === 2
     ? Math.hypot(measurePoints[1][0] - measurePoints[0][0], measurePoints[1][1] - measurePoints[0][1])
-    : (measurePoints.length === 1 && cursorCad
-        ? Math.hypot(cursorCad[0] - measurePoints[0][0], cursorCad[1] - measurePoints[0][1])
+    : (measurePoints.length === 1 && liveEndpoint
+        ? Math.hypot(liveEndpoint[0] - measurePoints[0][0], liveEndpoint[1] - measurePoints[0][1])
         : 0);
 
   const cursorClass = measureMode ? 'cursor-crosshair' : 'cursor-move';
+
+  // Display position for the properties panel; varies by selected kind.
+  const selectedDisplayPos: Pt | null =
+    selected?.kind === 'fixture' ? selected.location
+    : selected?.kind === 'pipe' ? selected.segment[0]
+    : selected?.kind === 'fitting' ? selected.position
+    : null;
 
   return (
     <div className={isInline ? 'flex flex-col w-full h-full' : 'fixed inset-0 z-[60] flex flex-col bg-white'}>
@@ -279,7 +414,7 @@ export default function DrawingViewer({
             )}
           </div>
           <div className="flex gap-3 items-center">
-            <span className="text-xs text-gray-400">Scroll to zoom · drag to pan · M to measure</span>
+            <span className="text-xs text-gray-400">Scroll to zoom · drag to pan · M measure · E fit · Esc clear</span>
             <button onClick={() => onClose?.()} className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200">Close</button>
           </div>
         </div>
@@ -299,7 +434,7 @@ export default function DrawingViewer({
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
             onClick={handleSvgClick}
           >
             {backdropHideCss && <style>{backdropHideCss}</style>}
@@ -327,33 +462,53 @@ export default function DrawingViewer({
               {/* Context: all pipes (faded) */}
               {visiblePipes.flatMap(p => {
                 const isHovered = hoveredRegion?.type === 'pipe' && hoveredRegion.key === p.layer;
-                return p.segments.map((s, i) => (
-                  <line
-                    key={`p-${p.layer}-${i}`}
-                    x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
-                    stroke={isHovered ? '#F59E0B' : '#cbd5e1'}
-                    strokeWidth={isHovered ? strokeBase * 2 : strokeBase}
-                    className="cursor-pointer"
-                    onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
-                    onMouseLeave={() => onHoverRegion?.(null)}
-                    onClick={(e) => { if (panState.current.didDrag || measureMode) return; e.stopPropagation(); onClickRegion?.({ type: 'pipe', key: p.layer }); }}
-                  />
-                ));
+                return p.segments.map((s, i) => {
+                  const isSelected = selected?.kind === 'pipe' && selected.layer === p.layer
+                    && selected.segment[0][0] === s[0][0] && selected.segment[0][1] === s[0][1]
+                    && selected.segment[1][0] === s[1][0] && selected.segment[1][1] === s[1][1];
+                  return (
+                    <line
+                      key={`p-${p.layer}-${i}`}
+                      x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
+                      stroke={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : '#cbd5e1')}
+                      strokeWidth={isSelected ? strokeBase * 3 : (isHovered ? strokeBase * 2 : strokeBase)}
+                      className="cursor-pointer"
+                      onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
+                      onMouseLeave={() => onHoverRegion?.(null)}
+                      onClick={(e) => {
+                        if (panState.current.didDrag || measureMode) return;
+                        e.stopPropagation();
+                        const length = Math.hypot(s[1][0] - s[0][0], s[1][1] - s[0][1]);
+                        setSelected({ kind: 'pipe', layer: p.layer, service_type: p.service_type, segment: s, length });
+                        onClickRegion?.({ type: 'pipe', key: p.layer });
+                      }}
+                    />
+                  );
+                });
               })}
 
               {/* Context: fixtures (faded dots) */}
               {visibleFixtures.flatMap(f =>
                 f.locations.map((loc, i) => {
                   const isHovered = hoveredRegion?.type === 'fixture' && hoveredRegion.key === f.block_name;
+                  const isSelected = selected?.kind === 'fixture' && selected.block_name === f.block_name
+                    && selected.location[0] === loc[0] && selected.location[1] === loc[1];
                   return (
                     <circle
                       key={`fx-${f.block_name}-${i}`}
-                      cx={loc[0]} cy={loc[1]} r={pointRadius}
-                      fill={isHovered ? '#F59E0B' : '#cbd5e1'}
+                      cx={loc[0]} cy={loc[1]} r={isSelected ? pointRadius * 1.4 : pointRadius}
+                      fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : '#cbd5e1')}
+                      stroke={isSelected ? '#F59E0B' : 'none'}
+                      strokeWidth={isSelected ? strokeBase * 3 : 0}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fixture', key: f.block_name })}
                       onMouseLeave={() => onHoverRegion?.(null)}
-                      onClick={(e) => { if (panState.current.didDrag || measureMode) return; e.stopPropagation(); onClickRegion?.({ type: 'fixture', key: f.block_name }); }}
+                      onClick={(e) => {
+                        if (panState.current.didDrag || measureMode) return;
+                        e.stopPropagation();
+                        setSelected({ kind: 'fixture', block_name: f.block_name, layer: f.layer, location: loc });
+                        onClickRegion?.({ type: 'fixture', key: f.block_name });
+                      }}
                     />
                   );
                 })
@@ -363,16 +518,25 @@ export default function DrawingViewer({
               {visibleFittings.flatMap(f =>
                 (f.positions || []).map((pos, i) => {
                   const isHovered = hoveredRegion?.type === 'fitting' && hoveredRegion.key === f.layer;
+                  const isSelected = selected?.kind === 'fitting' && selected.layer === f.layer
+                    && selected.position[0] === pos[0] && selected.position[1] === pos[1];
                   return (
                     <rect
                       key={`ctx-ft-${f.layer}-${i}`}
                       x={pos[0] - pointRadius} y={pos[1] - pointRadius}
                       width={pointRadius * 2} height={pointRadius * 2}
-                      fill={isHovered ? '#F59E0B' : '#cbd5e1'}
+                      fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : '#cbd5e1')}
+                      stroke={isSelected ? '#F59E0B' : 'none'}
+                      strokeWidth={isSelected ? strokeBase * 3 : 0}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fitting', key: f.layer })}
                       onMouseLeave={() => onHoverRegion?.(null)}
-                      onClick={(e) => { if (panState.current.didDrag || measureMode) return; e.stopPropagation(); onClickRegion?.({ type: 'fitting', key: f.layer }); }}
+                      onClick={(e) => {
+                        if (panState.current.didDrag || measureMode) return;
+                        e.stopPropagation();
+                        setSelected({ kind: 'fitting', fitting_type: f.fitting_type, layer: f.layer, position: pos });
+                        onClickRegion?.({ type: 'fitting', key: f.layer });
+                      }}
                     />
                   );
                 })
@@ -404,10 +568,10 @@ export default function DrawingViewer({
               ))}
 
               {/* Measure tool overlay (in CAD coords, inside Y-flipped group) */}
-              {measureMode && measurePoints.length === 1 && cursorCad && (
+              {measureMode && measurePoints.length === 1 && liveEndpoint && (
                 <line
                   x1={measurePoints[0][0]} y1={measurePoints[0][1]}
-                  x2={cursorCad[0]} y2={cursorCad[1]}
+                  x2={liveEndpoint[0]} y2={liveEndpoint[1]}
                   stroke="#F59E0B" strokeDasharray="6 4"
                   strokeWidth={strokeBase * 1.5}
                   pointerEvents="none"
@@ -436,13 +600,23 @@ export default function DrawingViewer({
                   />
                 </>
               )}
+
+              {/* Snap indicator — small amber square at the snap target. */}
+              {measureMode && snapPoint && (
+                <rect
+                  x={snapPoint[0] - snapBoxHalf} y={snapPoint[1] - snapBoxHalf}
+                  width={snapBoxHalf * 2} height={snapBoxHalf * 2}
+                  fill="none" stroke="#F59E0B" strokeWidth={strokeBase * 1.5}
+                  pointerEvents="none"
+                />
+              )}
             </g>
 
             {/* Measure label rendered outside the Y-flip group so the text
                 is not mirrored. Positioned in CAD-x but mirrored CAD-y. */}
-            {measurePoints.length >= 1 && (measurePoints.length === 2 || cursorCad) && (() => {
+            {measurePoints.length >= 1 && (measurePoints.length === 2 || liveEndpoint) && (() => {
               const a = measurePoints[0];
-              const b = measurePoints.length === 2 ? measurePoints[1] : (cursorCad as Pt);
+              const b = measurePoints.length === 2 ? measurePoints[1] : (liveEndpoint as Pt);
               const midX = (a[0] + b[0]) / 2;
               const midCadY = (a[1] + b[1]) / 2;
               // Mirror CAD-y back into SVG-y because we are outside the flipped group.
@@ -484,14 +658,50 @@ export default function DrawingViewer({
         {/* Toolbar — top-right */}
         {geom && bounds && (
           <div className="absolute top-2 right-2 flex gap-1 bg-white/95 rounded-md shadow-md p-1 z-10">
-            <button
-              type="button"
-              onClick={() => { setMeasureMode(m => !m); setMeasurePoints([]); }}
-              className={`px-2 py-1 text-xs rounded ${measureMode ? 'bg-amber-500 text-white' : 'hover:bg-slate-100 text-slate-700'}`}
-              title="Measure (M) · Esc to cancel"
-            >
-              Measure {measureMode ? '(on)' : ''}
-            </button>
+            <ToolBtn active={false} onClick={zoomExtents} title="Zoom Extents (E)">⛶</ToolBtn>
+            <ToolBtn active={measureMode} onClick={toggleMeasure} title="Measure (M)">📐</ToolBtn>
+            <ToolBtn active={false} onClick={clearSelection} title="Clear Selection (Esc)">↶</ToolBtn>
+          </div>
+        )}
+
+        {/* Live cursor coordinate readout — bottom-left */}
+        {cursorCad && (
+          <div className="absolute bottom-2 left-2 bg-white/95 rounded px-2 py-1 text-xs font-mono text-slate-600 shadow-sm z-10">
+            {formatCoord(cursorCad)}
+          </div>
+        )}
+
+        {/* Properties panel — bottom-right */}
+        {selected && (
+          <div className="absolute bottom-2 right-2 bg-white/95 rounded-md shadow-md p-3 text-xs max-w-[260px] z-10">
+            <div className="flex justify-between items-center mb-2">
+              <span className="font-semibold text-slate-800">Properties</span>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-slate-400 hover:text-slate-700"
+                title="Close"
+              >✕</button>
+            </div>
+            <dl className="space-y-1 text-slate-700">
+              <div><dt className="inline font-medium">Type: </dt><dd className="inline">{selected.kind}</dd></div>
+              <div><dt className="inline font-medium">Layer: </dt><dd className="inline">{selected.layer}</dd></div>
+              {selected.kind === 'fixture' && (
+                <div><dt className="inline font-medium">Block: </dt><dd className="inline">{selected.block_name}</dd></div>
+              )}
+              {selected.kind === 'pipe' && (
+                <>
+                  <div><dt className="inline font-medium">Service: </dt><dd className="inline">{selected.service_type}</dd></div>
+                  <div><dt className="inline font-medium">Length: </dt><dd className="inline">{formatDistance(selected.length)}</dd></div>
+                </>
+              )}
+              {selected.kind === 'fitting' && (
+                <div><dt className="inline font-medium">Fitting: </dt><dd className="inline">{selected.fitting_type}</dd></div>
+              )}
+              {selectedDisplayPos && (
+                <div><dt className="inline font-medium">Position: </dt><dd className="inline">{formatCoord(selectedDisplayPos)}</dd></div>
+              )}
+            </dl>
           </div>
         )}
       </div>
