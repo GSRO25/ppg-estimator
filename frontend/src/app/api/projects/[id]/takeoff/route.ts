@@ -49,14 +49,12 @@ const FIXTURE_SECTION = { number: 13, name: '13. Fitout' };
 
 async function fuzzyMatch(desc: string): Promise<{
   id: number; section_number: number; section_name: string;
-  labour_rate: number; material_rate: number; plant_rate: number;
-  confidence: string;
+  confidence: 'high' | 'low';
 } | null> {
   const rows = await query<{
-    id: number; section_number: number; section_name: string;
-    labour_rate: string; material_rate: string; plant_rate: string; score: string;
+    id: number; section_number: number; section_name: string; score: string;
   }>(
-    `SELECT id, section_number, section_name, labour_rate, material_rate, plant_rate,
+    `SELECT id, section_number, section_name,
             similarity(LOWER(description), LOWER($1)) AS score
      FROM rate_card_items
      WHERE similarity(LOWER(description), LOWER($1)) > 0.3
@@ -70,9 +68,6 @@ async function fuzzyMatch(desc: string): Promise<{
     id: row.id,
     section_number: row.section_number,
     section_name: row.section_name,
-    labour_rate: Number(row.labour_rate),
-    material_rate: Number(row.material_rate),
-    plant_rate: Number(row.plant_rate),
     confidence: Number(row.score) > 0.5 ? 'high' : 'low',
   };
 }
@@ -208,7 +203,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       let confidence = fitting.confidence || 'high';
 
       if (!fittingRateItemId) {
-        const searchStr = `${fitting.fitting_type} ${fitting.service_type.replace(/_/g, ' ')}`;
+        const searchStr = `${fitting.fitting_type.replace(/[_-]/g, ' ')} ${fitting.service_type.replace(/_/g, ' ')}`;
         const match = await fuzzyMatch(searchStr);
         if (match) {
           fittingRateItemId = match.id;
