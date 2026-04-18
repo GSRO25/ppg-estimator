@@ -31,7 +31,7 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'estimate.xlsx';
+        a.download = 'estimate.pdf';
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -123,9 +123,9 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
       <button
         onClick={handleExport}
         disabled={exporting}
-        className="mt-4 px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+        className="mt-4 px-6 py-3 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy font-medium disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {exporting ? 'Exporting...' : 'Export to Excel'}
+        {exporting ? 'Exporting...' : 'Export to PDF'}
       </button>
     </div>
   );
