@@ -105,6 +105,7 @@ export default function DrawingViewer({
   });
 
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  const [showBackdrop, setShowBackdrop] = useState(true);
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState<Pt[]>([]);
   const [cursorCad, setCursorCad] = useState<Pt | null>(null);
@@ -442,13 +443,15 @@ export default function DrawingViewer({
             <g transform={`translate(0, ${bounds.min_y + bounds.max_y}) scale(1, -1)`}>
               {/* Backdrop SVG from ezdxf — placed first so it sits behind everything else.
                   Faded so the extracted/interactive layer reads on top. */}
-              {backdropInner && (
-                <g
-                  className="backdrop"
-                  opacity={0.4}
-                  style={{ pointerEvents: 'none' }}
-                  dangerouslySetInnerHTML={{ __html: backdropInner }}
-                />
+              {backdropInner && showBackdrop && (
+                <g transform={`scale(1, -1) translate(0, ${-(bounds.min_y + bounds.max_y)})`}>
+                  <g
+                    className="backdrop"
+                    opacity={0.35}
+                    style={{ pointerEvents: 'none' }}
+                    dangerouslySetInnerHTML={{ __html: backdropInner }}
+                  />
+                </g>
               )}
 
               {/* Bounds outline */}
@@ -638,10 +641,14 @@ export default function DrawingViewer({
         )}
 
         {/* Layer toggle panel — top-left */}
-        {geom?.layers && geom.layers.length > 0 && (
+        {geom?.layers && geom.layers.length > 0 && (() => {
+          const JUNK_PATTERNS = [/^defpoints$/i, /^0$/, /titleblock/i, /viewport/i, /^ashade$/i, /^vp/i];
+          const cleanLayers = geom.layers.filter(l => !JUNK_PATTERNS.some(r => r.test(l)));
+          if (cleanLayers.length === 0) return null;
+          return (
           <div className="absolute top-2 left-2 bg-white/95 rounded-md shadow-md p-2 text-xs max-h-64 overflow-y-auto max-w-[220px] z-10">
-            <div className="font-semibold text-slate-700 mb-1">Layers</div>
-            {geom.layers.map(l => (
+            <div className="font-semibold text-slate-700 mb-1">Layers ({cleanLayers.length})</div>
+            {cleanLayers.map(l => (
               <label key={l} className="flex items-center gap-1.5 py-0.5 text-slate-600 hover:text-slate-900 cursor-pointer">
                 <input
                   type="checkbox"
@@ -653,13 +660,15 @@ export default function DrawingViewer({
               </label>
             ))}
           </div>
-        )}
+          );
+        })()}
 
         {/* Toolbar — top-right */}
         {geom && bounds && (
           <div className="absolute top-2 right-2 flex gap-1 bg-white/95 rounded-md shadow-md p-1 z-10">
             <ToolBtn active={false} onClick={zoomExtents} title="Zoom Extents (E)">⛶</ToolBtn>
             <ToolBtn active={measureMode} onClick={toggleMeasure} title="Measure (M)">📐</ToolBtn>
+            <ToolBtn active={showBackdrop} onClick={() => setShowBackdrop(v => !v)} title="Toggle Drawing Backdrop (B)">🗺️</ToolBtn>
             <ToolBtn active={false} onClick={clearSelection} title="Clear Selection (Esc)">↶</ToolBtn>
           </div>
         )}
