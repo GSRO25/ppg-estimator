@@ -91,6 +91,16 @@ export default function DrawingProcessor({ projectId, initialDrawings }: Props) 
 
   const hasPending = drawings.some(d => d.extraction_status === 'pending');
 
+  // Auto-start processing if flagged by upload
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = `ppg-autoprocess-${projectId}`;
+    if (sessionStorage.getItem(key) === '1' && hasPending && !processing) {
+      sessionStorage.removeItem(key);
+      handleProcess();
+    }
+  }, [hasPending, processing, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div>
       {!processing && hasPending && (

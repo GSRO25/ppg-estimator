@@ -25,6 +25,7 @@ export default function DrawingUpload({ projectId }: { projectId: number }) {
     await fetch(`/api/projects/${projectId}/drawings`, { method: 'POST', body: formData });
     setFiles([]);
     setUploading(false);
+    sessionStorage.setItem(`ppg-autoprocess-${projectId}`, '1');
     router.refresh();
   }
 
