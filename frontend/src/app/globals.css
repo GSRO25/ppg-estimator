@@ -24,3 +24,6 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* AG Grid row highlight (PPG amber) */
+.ag-row-ppg-highlight .ag-cell { background-color: #FEF3C7 !important; }

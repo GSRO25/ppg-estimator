@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, type ColDef, type CellValueChangedEvent } from 'ag-grid-community';
 
@@ -72,6 +72,7 @@ export default function TakeoffGrid({ rows, onQuantityChange, onRowClick, onRowH
       editable: true,
       cellDataType: 'number',
       cellStyle: (p) => {
+        if (p.data?.id === highlightedRowId) return { backgroundColor: '#FEF3C7' };
         const c = p.data?.confidence;
         if (c === 'high') return { backgroundColor: '#d4edda' };
         if (c === 'medium') return { backgroundColor: '#fff3cd' };
@@ -118,7 +119,24 @@ export default function TakeoffGrid({ rows, onQuantityChange, onRowClick, onRowH
       valueFormatter: (p) => `$${Number(p.value).toFixed(0)}`,
       cellStyle: { fontWeight: 'bold' },
     },
-  ], []);
+  ], [onQuantityChange, highlightedRowId]);
+
+  const prevHighlightRef = useRef<number | null | undefined>(null);
+  useEffect(() => {
+    const api = gridRef.current?.api;
+    if (!api) return;
+    const toRedraw = [];
+    if (prevHighlightRef.current != null) {
+      const prev = api.getRowNode(String(prevHighlightRef.current));
+      if (prev) toRedraw.push(prev);
+    }
+    if (highlightedRowId != null) {
+      const next = api.getRowNode(String(highlightedRowId));
+      if (next) toRedraw.push(next);
+    }
+    if (toRedraw.length) api.redrawRows({ rowNodes: toRedraw });
+    prevHighlightRef.current = highlightedRowId;
+  }, [highlightedRowId]);
 
   const onCellValueChanged = useCallback((event: CellValueChangedEvent<TakeoffRow>) => {
     if (event.colDef.field === 'final_qty' && event.data) {

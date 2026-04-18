@@ -59,7 +59,7 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
         </div>
       </div>
       <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
-      <div className="flex-1 mt-2">
+      <div className="flex-1 mt-2 relative">
         <TakeoffGrid
           rows={filteredItems}
           onQuantityChange={handleQuantityChange}
