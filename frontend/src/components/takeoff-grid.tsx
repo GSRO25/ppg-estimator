@@ -35,9 +35,11 @@ interface TakeoffGridProps {
   rows: TakeoffRow[];
   onQuantityChange: (itemId: number, newQty: number) => void;
   onRowClick?: (row: TakeoffRow) => void;
+  onRowHover?: (row: TakeoffRow | null) => void;
+  highlightedRowId?: number | null;
 }
 
-export default function TakeoffGrid({ rows, onQuantityChange, onRowClick }: TakeoffGridProps) {
+export default function TakeoffGrid({ rows, onQuantityChange, onRowClick, onRowHover, highlightedRowId }: TakeoffGridProps) {
   const gridRef = useRef<AgGridReact>(null);
 
   const columnDefs = useMemo<ColDef<TakeoffRow>[]>(() => [
@@ -135,6 +137,12 @@ export default function TakeoffGrid({ rows, onQuantityChange, onRowClick }: Take
           // Don't open the editor when the editable QTY cell is clicked
           if (e.colDef.field === 'final_qty') return;
           if (e.data && onRowClick) onRowClick(e.data);
+        }}
+        onCellMouseOver={(e) => { if (e.data) onRowHover?.(e.data); }}
+        onCellMouseOut={() => onRowHover?.(null)}
+        getRowStyle={(params) => {
+          if (params.data?.id === highlightedRowId) return { backgroundColor: '#FEF3C7' };
+          return undefined;
         }}
         defaultColDef={{
           sortable: true,
