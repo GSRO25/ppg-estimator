@@ -476,8 +476,8 @@ export default function DrawingViewer({
                       <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
-                          opacity={0.35}
-                          style={{ pointerEvents: 'none' }}
+                          opacity={0.75}
+                          style={{ pointerEvents: 'none', filter: 'invert(1) hue-rotate(180deg)' }}
                           dangerouslySetInnerHTML={{ __html: backdropInner }}
                         />
                       </g>
