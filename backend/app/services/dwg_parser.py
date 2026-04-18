@@ -127,7 +127,12 @@ def _render_dxf_to_svg(doc, warnings: list[str]) -> str | None:
         except TypeError:
             cfg = Configuration()
         Frontend(ctx, backend, config=cfg).draw_layout(msp)
-        return backend.get_string()
+        try:
+            from ezdxf.addons.drawing.layout import Page
+            page = Page(width=0, height=0)  # 0,0 = auto-size from bounds
+            return backend.get_string(page)
+        except (ImportError, TypeError):
+            return backend.get_string()
     except Exception as e:  # noqa: BLE001 — backdrop is best-effort
         warnings.append(f"svg_backdrop render failed: {e}")
         traceback.print_exc()
