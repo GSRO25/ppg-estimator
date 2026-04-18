@@ -21,10 +21,36 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   if (!drawing.extraction_result) return NextResponse.json({ error: 'No extraction result' }, { status: 404 });
 
   const r = drawing.extraction_result;
+  let bounds = r.bounds || null;
+
+  if (!bounds) {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const f of r.fixtures || []) {
+      for (const [x, y] of (f.locations || [])) { xs.push(x); ys.push(y); }
+    }
+    for (const p of r.pipes || []) {
+      for (const seg of (p.segments || [])) {
+        for (const [x, y] of seg) { xs.push(x); ys.push(y); }
+      }
+    }
+    for (const f of r.fittings || []) {
+      for (const [x, y] of (f.positions || [])) { xs.push(x); ys.push(y); }
+    }
+    if (xs.length > 0) {
+      bounds = {
+        min_x: Math.min(...xs),
+        min_y: Math.min(...ys),
+        max_x: Math.max(...xs),
+        max_y: Math.max(...ys),
+      };
+    }
+  }
+
   return NextResponse.json({
     drawing_id: drawing.id,
     filename: drawing.filename,
-    bounds: r.bounds || null,
+    bounds: bounds,
     fixtures: (r.fixtures || []).map(f => ({ block_name: f.block_name, layer: f.layer, locations: f.locations })),
     pipes: (r.pipes || []).map(p => ({ layer: p.layer, service_type: p.service_type, segments: p.segments || [] })),
     fittings: (r.fittings || []).map(f => ({ layer: f.layer, fitting_type: f.fitting_type, positions: f.positions || [] })),
