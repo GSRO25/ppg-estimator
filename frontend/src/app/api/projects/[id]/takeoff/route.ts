@@ -47,6 +47,36 @@ const SERVICE_SECTION_MAP: Record<string, { number: number; name: string }> = {
 
 const FIXTURE_SECTION = { number: 13, name: '13. Fitout' };
 
+async function fuzzyMatch(desc: string): Promise<{
+  id: number; section_number: number; section_name: string;
+  labour_rate: number; material_rate: number; plant_rate: number;
+  confidence: string;
+} | null> {
+  const rows = await query<{
+    id: number; section_number: number; section_name: string;
+    labour_rate: string; material_rate: string; plant_rate: string; score: string;
+  }>(
+    `SELECT id, section_number, section_name, labour_rate, material_rate, plant_rate,
+            similarity(LOWER(description), LOWER($1)) AS score
+     FROM rate_card_items
+     WHERE similarity(LOWER(description), LOWER($1)) > 0.3
+     ORDER BY score DESC
+     LIMIT 1`,
+    [desc]
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    section_number: row.section_number,
+    section_name: row.section_name,
+    labour_rate: Number(row.labour_rate),
+    material_rate: Number(row.material_rate),
+    plant_rate: Number(row.plant_rate),
+    confidence: Number(row.score) > 0.5 ? 'high' : 'low',
+  };
+}
+
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const items = await query(
@@ -105,9 +135,21 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
 
     // Fixtures → takeoff items
     for (const fixture of result.fixtures || []) {
-      const rateCardItemId = blockToItem[fixture.block_name] || null;
+      let rateCardItemId = blockToItem[fixture.block_name] || null;
       // If mapped to a rate card item, use that item's section; else default to Fitout
-      const fixtureSection = blockToSection[fixture.block_name] || FIXTURE_SECTION;
+      let fixtureSection = blockToSection[fixture.block_name] || FIXTURE_SECTION;
+      let confidence = fixture.confidence || 'high';
+
+      if (!rateCardItemId) {
+        const searchStr = fixture.block_name.replace(/[_-]/g, ' ');
+        const match = await fuzzyMatch(searchStr);
+        if (match) {
+          rateCardItemId = match.id;
+          fixtureSection = { number: match.section_number, name: match.section_name };
+          confidence = match.confidence;
+        }
+      }
+
       await query(
         `INSERT INTO takeoff_items (project_id, drawing_id, rate_card_item_id, section_number, section_name, description, uom, extracted_qty, final_qty, confidence, source, drawing_region)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11)`,
@@ -116,7 +158,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
           fixtureSection.number, fixtureSection.name,
           fixture.block_name, 'Each',
           fixture.count,
-          fixture.confidence || 'high', 'dwg_parser',
+          confidence, 'dwg_parser',
           JSON.stringify({ type: 'fixture', block_name: fixture.block_name, locations: fixture.locations }),
         ]
       );
@@ -125,11 +167,23 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
 
     // Pipes → takeoff items
     for (const pipe of result.pipes || []) {
-      const pipeRateItemId = blockToItem[pipe.layer] || null;
+      let pipeRateItemId = blockToItem[pipe.layer] || null;
       // Prefer rate-card-mapped section over keyword classification
-      const section = blockToSection[pipe.layer] ||
+      let section = blockToSection[pipe.layer] ||
         SERVICE_SECTION_MAP[pipe.service_type] ||
         { number: 99, name: 'Uncategorized' };
+      let confidence = pipe.confidence || 'high';
+
+      if (!pipeRateItemId) {
+        const searchStr = `${pipe.service_type.replace(/_/g, ' ')} pipe ${pipe.layer}`;
+        const match = await fuzzyMatch(searchStr);
+        if (match) {
+          pipeRateItemId = match.id;
+          section = { number: match.section_number, name: match.section_name };
+          confidence = match.confidence;
+        }
+      }
+
       await query(
         `INSERT INTO takeoff_items (project_id, drawing_id, rate_card_item_id, section_number, section_name, description, uom, extracted_qty, final_qty, confidence, source, drawing_region)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11)`,
@@ -138,7 +192,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
           section.number, section.name,
           `${pipe.layer} pipe (${pipe.service_type})`, 'Per Meter',
           pipe.total_length_m,
-          pipe.confidence || 'high', 'dwg_parser',
+          confidence, 'dwg_parser',
           JSON.stringify({ type: 'pipe', layer: pipe.layer, segments: pipe.segments || [] }),
         ]
       );
@@ -147,10 +201,22 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
 
     // Fittings → takeoff items
     for (const fitting of result.fittings || []) {
-      const fittingRateItemId = blockToItem[fitting.layer] || null;
-      const section = blockToSection[fitting.layer] ||
+      let fittingRateItemId = blockToItem[fitting.layer] || null;
+      let section = blockToSection[fitting.layer] ||
         SERVICE_SECTION_MAP[fitting.service_type] ||
         { number: 99, name: 'Uncategorized' };
+      let confidence = fitting.confidence || 'high';
+
+      if (!fittingRateItemId) {
+        const searchStr = `${fitting.fitting_type} ${fitting.service_type.replace(/_/g, ' ')}`;
+        const match = await fuzzyMatch(searchStr);
+        if (match) {
+          fittingRateItemId = match.id;
+          section = { number: match.section_number, name: match.section_name };
+          confidence = match.confidence;
+        }
+      }
+
       await query(
         `INSERT INTO takeoff_items (project_id, drawing_id, rate_card_item_id, section_number, section_name, description, uom, extracted_qty, final_qty, confidence, source, drawing_region)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11)`,
@@ -159,7 +225,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
           section.number, section.name,
           `${fitting.fitting_type} (${fitting.layer})`, 'Each',
           fitting.count,
-          fitting.confidence || 'high', 'dwg_parser',
+          confidence, 'dwg_parser',
           JSON.stringify({ type: 'fitting', layer: fitting.layer, positions: fitting.positions || [] }),
         ]
       );
