@@ -22,7 +22,7 @@ type Highlight =
 interface Props {
   drawingId: number;
   highlight: Highlight | null;
-  onClose: () => void;
+  onClose?: () => void;
   // NEW:
   mode?: 'modal' | 'inline';
   onHoverRegion?: (region: { type: string; key: string } | null) => void;
@@ -43,8 +43,8 @@ export default function DrawingViewer({
   const [err, setErr] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewBox, setViewBox] = useState<string>('');
-  const panState = useRef<{ dragging: boolean; lastX: number; lastY: number; vb: number[] }>({
-    dragging: false, lastX: 0, lastY: 0, vb: [0, 0, 0, 0],
+  const panState = useRef<{ dragging: boolean; lastX: number; lastY: number; vb: number[]; didDrag: boolean; startX: number; startY: number }>({
+    dragging: false, lastX: 0, lastY: 0, vb: [0, 0, 0, 0], didDrag: false, startX: 0, startY: 0,
   });
 
   useEffect(() => {
@@ -93,12 +93,17 @@ export default function DrawingViewer({
     panState.current.dragging = true;
     panState.current.lastX = e.clientX;
     panState.current.lastY = e.clientY;
+    panState.current.startX = e.clientX;
+    panState.current.startY = e.clientY;
+    panState.current.didDrag = false;
     panState.current.vb = viewBox.split(' ').map(Number);
   }
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!panState.current.dragging) return;
     const svg = svgRef.current;
     if (!svg) return;
+    const dist = Math.hypot(e.clientX - panState.current.startX, e.clientY - panState.current.startY);
+    if (dist > 4) panState.current.didDrag = true;
     const dx = e.clientX - panState.current.lastX;
     const dy = e.clientY - panState.current.lastY;
     const rect = svg.getBoundingClientRect();
@@ -146,7 +151,7 @@ export default function DrawingViewer({
           </div>
           <div className="flex gap-3 items-center">
             <span className="text-xs text-gray-400">Scroll to zoom · drag to pan</span>
-            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200">Close</button>
+            <button onClick={() => onClose?.()} className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200">Close</button>
           </div>
         </div>
       )}
@@ -178,9 +183,9 @@ export default function DrawingViewer({
               />
 
               {/* Context: all pipes (faded) */}
-              {geom.pipes.flatMap(p => p.segments.map((s, i) => {
+              {geom.pipes.flatMap(p => {
                 const isHovered = hoveredRegion?.type === 'pipe' && hoveredRegion.key === p.layer;
-                return (
+                return p.segments.map((s, i) => (
                   <line
                     key={`p-${p.layer}-${i}`}
                     x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
@@ -189,10 +194,10 @@ export default function DrawingViewer({
                     className="cursor-pointer"
                     onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
                     onMouseLeave={() => onHoverRegion?.(null)}
-                    onClick={(e) => { e.stopPropagation(); onClickRegion?.({ type: 'pipe', key: p.layer }); }}
+                    onClick={(e) => { if (panState.current.didDrag) return; e.stopPropagation(); onClickRegion?.({ type: 'pipe', key: p.layer }); }}
                   />
-                );
-              }))}
+                ));
+              })}
 
               {/* Context: fixtures (faded dots) */}
               {geom.fixtures.flatMap(f =>
@@ -206,7 +211,26 @@ export default function DrawingViewer({
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fixture', key: f.block_name })}
                       onMouseLeave={() => onHoverRegion?.(null)}
-                      onClick={(e) => { e.stopPropagation(); onClickRegion?.({ type: 'fixture', key: f.block_name }); }}
+                      onClick={(e) => { if (panState.current.didDrag) return; e.stopPropagation(); onClickRegion?.({ type: 'fixture', key: f.block_name }); }}
+                    />
+                  );
+                })
+              )}
+
+              {/* Context: fittings (faded squares) */}
+              {geom.fittings.flatMap(f =>
+                (f.positions || []).map((pos, i) => {
+                  const isHovered = hoveredRegion?.type === 'fitting' && hoveredRegion.key === f.layer;
+                  return (
+                    <rect
+                      key={`ctx-ft-${f.layer}-${i}`}
+                      x={pos[0] - pointRadius} y={pos[1] - pointRadius}
+                      width={pointRadius * 2} height={pointRadius * 2}
+                      fill={isHovered ? '#F59E0B' : '#cbd5e1'}
+                      className="cursor-pointer"
+                      onMouseEnter={() => onHoverRegion?.({ type: 'fitting', key: f.layer })}
+                      onMouseLeave={() => onHoverRegion?.(null)}
+                      onClick={(e) => { if (panState.current.didDrag) return; e.stopPropagation(); onClickRegion?.({ type: 'fitting', key: f.layer }); }}
                     />
                   );
                 })
