@@ -17,12 +17,19 @@ export default function SidebarNav() {
   return (
     <nav className="space-y-0.5">
       {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+        const active =
+          pathname === item.href ||
+          (item.href !== '/dashboard' &&
+           pathname.startsWith(item.href + '/') &&
+           !NAV_ITEMS.some(
+             (other) => other.href !== item.href && pathname.startsWith(other.href) && other.href.length > item.href.length
+           ));
         const Icon = item.icon;
         return (
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active ? 'page' : undefined}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               active
                 ? 'bg-white/15 text-white font-semibold'

@@ -12,7 +12,7 @@ export default function SectionTabs({ sections, activeSection, onSelect }: Secti
       <button
         onClick={() => onSelect(null)}
         className={`px-3 py-2 text-sm font-medium rounded-t whitespace-nowrap ${
-          activeSection === null ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+          activeSection === null ? 'bg-ppg-blue text-white' : 'text-gray-600 hover:bg-gray-100'
         }`}
       >
         All
@@ -22,7 +22,7 @@ export default function SectionTabs({ sections, activeSection, onSelect }: Secti
           key={s.number}
           onClick={() => onSelect(s.number)}
           className={`px-3 py-2 text-sm font-medium rounded-t whitespace-nowrap ${
-            activeSection === s.number ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+            activeSection === s.number ? 'bg-ppg-blue text-white' : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
           {s.name} <span className="ml-1 text-xs opacity-75">({s.count})</span>

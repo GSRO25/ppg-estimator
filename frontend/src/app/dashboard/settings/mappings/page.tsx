@@ -90,7 +90,7 @@ export default function MappingsPage() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 rounded text-xs font-medium ${filter === f ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-3 py-1.5 rounded text-xs font-medium ${filter === f ? 'bg-ppg-blue text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
                 {f === 'all' ? 'All' : f === 'block' ? 'Fixture Blocks' : 'Pipe Layers'}
               </button>

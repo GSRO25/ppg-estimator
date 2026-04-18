@@ -57,7 +57,7 @@ export default function ProjectForm() {
       <button
         type="submit"
         disabled={submitting}
-        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+        className="px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy disabled:opacity-50 text-sm font-medium"
       >
         {submitting ? 'Creating...' : 'Create Project'}
       </button>

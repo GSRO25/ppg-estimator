@@ -33,7 +33,7 @@ export default async function RateCardsPage() {
               <label className="block text-sm font-medium text-gray-700">Excel File</label>
               <input name="file" type="file" accept=".xlsx,.xls" required className="mt-1 block text-sm" />
             </div>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium">Import</button>
+            <button type="submit" className="px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy text-sm font-medium">Import</button>
           </form>
         </div>
         {(versions as any[]).length > 0 && (
