@@ -14,7 +14,7 @@ interface DrawingGeometry {
 }
 
 // drawing_region stored on takeoff_items
-type Highlight =
+export type Highlight =
   | { type: 'fixture'; block_name: string; locations: Pt[] }
   | { type: 'pipe'; layer: string; segments: [Pt, Pt][] }
   | { type: 'fitting'; layer: string; positions: Pt[] };

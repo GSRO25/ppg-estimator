@@ -1,11 +1,39 @@
 'use client';
 
-import { useEffect, useState, useCallback, use } from 'react';
+import { useEffect, useState, useCallback, useMemo, use } from 'react';
 import TakeoffGrid, { type TakeoffRow } from '@/components/takeoff-grid';
 import SectionTabs from '@/components/section-tabs';
 import TakeoffRowEditor from '@/components/takeoff-row-editor';
-import DrawingViewer from '@/components/drawing-viewer';
+import DrawingViewer, { type Highlight } from '@/components/drawing-viewer';
 import { formatCurrency } from '@/lib/utils';
+
+function toHighlight(r: TakeoffRow['drawing_region']): Highlight | null {
+  if (!r?.type) return null;
+  if (r.type === 'fixture' && r.block_name && r.locations) {
+    return { type: 'fixture', block_name: r.block_name, locations: r.locations };
+  }
+  if (r.type === 'pipe' && r.layer && r.segments) {
+    return { type: 'pipe', layer: r.layer, segments: r.segments };
+  }
+  if (r.type === 'fitting' && r.layer && r.positions) {
+    return { type: 'fitting', layer: r.layer, positions: r.positions };
+  }
+  return null;
+}
+
+function findRowByRegion(
+  items: TakeoffRow[],
+  region: { type: string; key: string }
+): TakeoffRow | undefined {
+  return items.find(i => {
+    const r = i.drawing_region;
+    if (!r) return false;
+    if (region.type === 'fixture') return r.type === 'fixture' && r.block_name === region.key;
+    if (region.type === 'pipe') return r.type === 'pipe' && r.layer === region.key;
+    if (region.type === 'fitting') return r.type === 'fitting' && r.layer === region.key;
+    return false;
+  });
+}
 
 export default function TakeoffPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -27,13 +55,13 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
 
   // On initial load, pick first drawing in items if any
   useEffect(() => {
-    if (items.length > 0 && !activeDrawingId) {
+    if (items.length > 0 && activeDrawingId === null) {
       const first = items.find(i => i.drawing_id);
       if (first?.drawing_id) setActiveDrawingId(first.drawing_id);
     }
-  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, activeDrawingId]);
 
-  const sections = Array.from(
+  const sections = useMemo(() => Array.from(
     items.reduce((acc, item) => {
       if (!acc.has(item.section_number)) {
         acc.set(item.section_number, { number: item.section_number, name: item.section_name, count: 0 });
@@ -41,7 +69,7 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
       acc.get(item.section_number)!.count++;
       return acc;
     }, new Map<number, { number: number; name: string; count: number }>())
-  ).map(([, v]) => v).sort((a, b) => a.number - b.number);
+  ).map(([, v]) => v).sort((a, b) => a.number - b.number), [items]);
 
   const filteredItems = activeSection !== null
     ? items.filter(i => i.section_number === activeSection)
@@ -56,43 +84,27 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, final_qty: newQty } : i));
   }, [id]);
 
-  const grandTotal = items.reduce((sum, i) => {
+  const grandTotal = useMemo(() => items.reduce((sum, i) => {
     const qty = i.final_qty || 0;
     const rates = (i.labour_rate || 0) + (i.material_rate || 0) + (i.plant_rate || 0);
     return sum + qty * rates;
-  }, 0);
+  }, 0), [items]);
 
   // Derived: hovered row (grid -> drawing highlight)
   const hoveredRow = hoveredItemId ? items.find(i => i.id === hoveredItemId) ?? null : null;
 
   // Derived: drawing region hover -> grid highlighted row id
-  const gridHighlightId = hoveredRegion
-    ? (items.find(i => {
-        const r = i.drawing_region;
-        if (!r) return false;
-        if (hoveredRegion.type === 'fixture') return r.type === 'fixture' && r.block_name === hoveredRegion.key;
-        if (hoveredRegion.type === 'pipe') return r.type === 'pipe' && r.layer === hoveredRegion.key;
-        if (hoveredRegion.type === 'fitting') return r.type === 'fitting' && r.layer === hoveredRegion.key;
-        return false;
-      })?.id ?? null)
-    : null;
+  const gridHighlightId = hoveredRegion ? (findRowByRegion(items, hoveredRegion)?.id ?? null) : null;
 
-  function handleRowHover(row: TakeoffRow | null) {
+  const handleRowHover = useCallback((row: TakeoffRow | null) => {
     setHoveredItemId(row?.id ?? null);
     if (row?.drawing_id) setActiveDrawingId(row.drawing_id);
-  }
+  }, []);
 
-  function handleClickRegion(region: { type: string; key: string }) {
-    const match = items.find(i => {
-      const r = i.drawing_region;
-      if (!r) return false;
-      if (region.type === 'fixture') return r.type === 'fixture' && r.block_name === region.key;
-      if (region.type === 'pipe') return r.type === 'pipe' && r.layer === region.key;
-      if (region.type === 'fitting') return r.type === 'fitting' && r.layer === region.key;
-      return false;
-    });
+  const handleClickRegion = useCallback((region: { type: string; key: string }) => {
+    const match = findRowByRegion(items, region);
     if (match) setEditingRow(match);
-  }
+  }, [items]);
 
   if (loading) {
     return (
@@ -119,8 +131,7 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
           {activeDrawingId ? (
             <DrawingViewer
               drawingId={activeDrawingId}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              highlight={(hoveredRow?.drawing_region ?? null) as any}
+              highlight={toHighlight(hoveredRow?.drawing_region ?? null)}
               hoveredRegion={hoveredRegion}
               onHoverRegion={setHoveredRegion}
               onClickRegion={handleClickRegion}
