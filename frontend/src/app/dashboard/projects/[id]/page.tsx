@@ -37,7 +37,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <div className="flex gap-3 items-center">
           <DrawingProcessor projectId={project.id} initialDrawings={drawings} />
           {hasCompleteDrawings && (
-            <Link href={`/dashboard/projects/${id}/takeoff`} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium">
+            <Link href={`/dashboard/projects/${id}/takeoff`} className="px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy text-sm font-medium">
               View Takeoff
             </Link>
           )}
@@ -45,7 +45,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       </div>
 
       <div className="space-y-6">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Drawings</h3>
           <DrawingUpload projectId={project.id} />
           {drawings.length > 0 && (

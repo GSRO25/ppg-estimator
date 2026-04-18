@@ -72,7 +72,7 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Estimate Summary</h2>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -113,9 +113,9 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
               <td className="px-6 py-3" />
               <td className="px-6 py-3 text-sm text-right font-medium">{formatCurrency(margin)}</td>
             </tr>
-            <tr className="bg-blue-50">
+            <tr className="bg-ppg-surface">
               <td className="px-6 py-4 text-base font-bold" colSpan={4}>Grand Total (inc. Margin)</td>
-              <td className="px-6 py-4 text-base text-right font-bold text-blue-700">{formatCurrency(grandTotal)}</td>
+              <td className="px-6 py-4 text-base text-right font-bold text-ppg-blue">{formatCurrency(grandTotal)}</td>
             </tr>
           </tfoot>
         </table>

@@ -50,7 +50,7 @@ export default function DrawingUpload({ projectId }: { projectId: number }) {
           <button
             onClick={handleUpload}
             disabled={uploading}
-            className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+            className="mt-3 px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy disabled:opacity-50 text-sm"
           >
             {uploading ? 'Uploading...' : 'Upload'}
           </button>

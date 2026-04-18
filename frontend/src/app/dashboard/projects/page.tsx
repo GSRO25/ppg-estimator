@@ -24,7 +24,7 @@ export default async function ProjectsPage() {
         <h2 className="text-2xl font-bold text-gray-900">Projects</h2>
         <Link
           href="/dashboard/projects/new"
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
+          className="px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy text-sm font-medium"
         >
           New Project
         </Link>
@@ -32,7 +32,7 @@ export default async function ProjectsPage() {
       {projects.length === 0 ? (
         <p className="text-gray-500">No projects yet. Create your first project to get started.</p>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -47,7 +47,7 @@ export default async function ProjectsPage() {
               {projects.map((project) => (
                 <tr key={project.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
-                    <Link href={`/dashboard/projects/${project.id}`} className="text-blue-600 hover:underline font-medium">
+                    <Link href={`/dashboard/projects/${project.id}`} className="text-ppg-blue hover:underline font-medium">
                       {project.name}
                     </Link>
                   </td>

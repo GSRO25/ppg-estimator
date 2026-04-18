@@ -105,7 +105,7 @@ export default function TakeoffRowEditor({ row, onClose, onSaved, projectId, mod
         {row.drawing_id && row.drawing_region && onRequestHighlight && (
           <button
             onClick={() => onRequestHighlight(row.drawing_region)}
-            className="mt-3 px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700"
+            className="mt-3 px-3 py-1.5 bg-ppg-blue text-white rounded text-xs font-medium hover:bg-ppg-navy"
           >
             📐 Highlight in drawing
           </button>
@@ -148,7 +148,7 @@ export default function TakeoffRowEditor({ row, onClose, onSaved, projectId, mod
                   <button
                     onClick={() => assignItem(item)}
                     disabled={saving || isCurrent}
-                    className={`w-full text-left px-5 py-3 hover:bg-blue-50 disabled:opacity-60 disabled:cursor-default ${isCurrent ? 'bg-blue-50' : ''}`}
+                    className={`w-full text-left px-5 py-3 hover:bg-ppg-surface disabled:opacity-60 disabled:cursor-default ${isCurrent ? 'bg-ppg-surface' : ''}`}
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -163,7 +163,7 @@ export default function TakeoffRowEditor({ row, onClose, onSaved, projectId, mod
                         {item.plant_rate > 0 && <div>P: ${item.plant_rate.toFixed(2)}</div>}
                       </div>
                     </div>
-                    {isCurrent && <div className="text-xs text-blue-600 mt-1">✓ current selection</div>}
+                    {isCurrent && <div className="text-xs text-ppg-blue mt-1">✓ current selection</div>}
                   </button>
                 </li>
               );
