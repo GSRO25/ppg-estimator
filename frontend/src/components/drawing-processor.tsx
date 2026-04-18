@@ -58,38 +58,58 @@ export default function DrawingProcessor({ projectId, initialDrawings }: Props) 
     }, 2000);
     intervalRef.current = interval;
 
+    let extractionFailed = false;
     try {
-      // Trigger extraction (this blocks until all drawings are processed)
       const extractRes = await fetch(`/api/projects/${projectId}/drawings/extract`, { method: 'POST' });
-      // Fix 4: Check for HTTP errors on extraction
-      if (!extractRes.ok) throw new Error(`Extraction API error: ${extractRes.status}`);
-
-      // After extraction completes, do one final poll to get latest state
-      const res = await fetch(`/api/projects/${projectId}/drawings`);
-      const finalDrawings: Drawing[] = await res.json();
-      // Fix 3 + Fix 2: Invalidate in-flight callbacks and guard unmounted state update
-      pollGenRef.current++;
-      clearInterval(interval);
-      intervalRef.current = null;
-      if (!mountedRef.current) return;
-      setDrawings(finalDrawings);
-
-      // Generate takeoff from completed drawings
-      const takeoffRes = await fetch(`/api/projects/${projectId}/takeoff`, { method: 'POST' });
-      // Fix 4: Check for HTTP errors on takeoff generation
-      if (!takeoffRes.ok) throw new Error(`Takeoff generation failed: ${takeoffRes.status}`);
-
-      // Fix 2 + Fix 5: Guard unmount and reset processing before navigation
-      if (!mountedRef.current) return;
-      setProcessing(false);
-      router.push(`/dashboard/projects/${projectId}/takeoff`);
+      if (!extractRes.ok) extractionFailed = true;
     } catch {
-      pollGenRef.current++;
-      clearInterval(interval);
-      intervalRef.current = null;
-      setProcessing(false);
-      setError('Processing failed. Please try again.');
+      extractionFailed = true;
     }
+
+    // Poll until no drawings are still pending/processing, or we time out after 5 minutes
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let finalDrawings: Drawing[] = drawings;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/drawings`);
+        finalDrawings = await res.json();
+        const stillRunning = finalDrawings.some(
+          d => d.extraction_status === 'pending' || d.extraction_status === 'processing'
+        );
+        if (!stillRunning) break;
+      } catch {
+        // ignore polling errors
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    pollGenRef.current++;
+    clearInterval(interval);
+    intervalRef.current = null;
+    if (!mountedRef.current) return;
+    setDrawings(finalDrawings);
+
+    const anyComplete = finalDrawings.some(d => d.extraction_status === 'complete');
+    if (!anyComplete) {
+      setProcessing(false);
+      setError(extractionFailed ? 'Extraction failed. Please try again.' : 'No drawings extracted successfully.');
+      return;
+    }
+
+    // Even if the extract POST errored browser-side, proceed to takeoff if any drawings completed
+    try {
+      const takeoffRes = await fetch(`/api/projects/${projectId}/takeoff`, { method: 'POST' });
+      if (!takeoffRes.ok) throw new Error(`Takeoff generation failed: ${takeoffRes.status}`);
+    } catch {
+      if (!mountedRef.current) return;
+      setProcessing(false);
+      setError('Takeoff generation failed. Please try again.');
+      return;
+    }
+
+    if (!mountedRef.current) return;
+    setProcessing(false);
+    router.push(`/dashboard/projects/${projectId}/takeoff`);
   }
 
   const hasPending = drawings.some(d => d.extraction_status === 'pending');
