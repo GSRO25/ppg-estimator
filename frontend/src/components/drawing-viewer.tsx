@@ -466,14 +466,21 @@ export default function DrawingViewer({
                   const cadW = bounds.max_x - bounds.min_x;
                   const cadH = bounds.max_y - bounds.min_y;
                   if (vw > 0 && vh > 0 && cadW > 0 && cadH > 0) {
-                    const sx = cadW / vw;
-                    const sy = cadH / vh; // absolute; Y is flipped via the -sy entry below
-                    // Composed transform applied to ezdxf-space coordinates:
-                    //   translate(min_x, max_y) · scale(sx, -sy) · translate(-vx, -vy)
-                    const tx = bounds.min_x - vx * sx;
-                    const ty = bounds.max_y + vy * sy;
+                    // Use uniform scale so the backdrop keeps its natural
+                    // aspect ratio. CAD bounds come from extracted geometry
+                    // only, so they may be narrower than the full drawing —
+                    // the backdrop will overflow, which is correct. User can
+                    // pan to explore context beyond the extracted region.
+                    const s = Math.min(cadW / vw, cadH / vh);
+                    const cadCX = (bounds.min_x + bounds.max_x) / 2;
+                    const cadCY = (bounds.min_y + bounds.max_y) / 2;
+                    const vbCX = vx + vw / 2;
+                    const vbCY = vy + vh / 2;
+                    // Center viewBox on CAD bounds center, with Y-flip (ezdxf Y-down → CAD Y-up).
+                    const tx = cadCX - vbCX * s;
+                    const ty = cadCY + vbCY * s;
                     return (
-                      <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
+                      <g transform={`matrix(${s}, 0, 0, ${-s}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
                           opacity={0.75}

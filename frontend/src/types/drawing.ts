@@ -13,4 +13,6 @@ export interface Drawing {
   extraction_result: Record<string, unknown> | null;
   tile_path: string | null;
   uploaded_at: string;
+  extraction_started_at: string | null;
+  extraction_completed_at: string | null;
 }

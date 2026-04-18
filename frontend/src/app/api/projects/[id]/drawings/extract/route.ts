@@ -16,18 +16,21 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
 
   const results = [];
   for (const drawing of drawings) {
-    await query("UPDATE drawings SET extraction_status = 'processing' WHERE id = $1", [drawing.id]);
+    await query(
+      "UPDATE drawings SET extraction_status = 'processing', extraction_started_at = now(), extraction_completed_at = NULL WHERE id = $1",
+      [drawing.id]
+    );
 
     try {
       const result = await extractDrawing(drawing.file_path, drawing.filename);
       await query(
-        "UPDATE drawings SET extraction_status = 'complete', extraction_result = $1 WHERE id = $2",
+        "UPDATE drawings SET extraction_status = 'complete', extraction_result = $1, extraction_completed_at = now() WHERE id = $2",
         [JSON.stringify(result), drawing.id]
       );
       results.push({ id: drawing.id, status: 'complete' });
     } catch (error) {
       await query(
-        "UPDATE drawings SET extraction_status = 'failed' WHERE id = $1",
+        "UPDATE drawings SET extraction_status = 'failed', extraction_completed_at = now() WHERE id = $1",
         [drawing.id]
       );
       results.push({ id: drawing.id, status: 'failed', error: String(error) });
