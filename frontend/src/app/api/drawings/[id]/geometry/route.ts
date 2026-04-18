@@ -24,33 +24,23 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   let bounds = r.bounds || null;
 
   if (!bounds) {
-    const xs: number[] = [];
-    const ys: number[] = [];
-    for (const f of r.fixtures || []) {
-      for (const [x, y] of (f.locations || [])) { xs.push(x); ys.push(y); }
-    }
-    for (const p of r.pipes || []) {
-      for (const seg of (p.segments || [])) {
-        for (const [x, y] of seg) { xs.push(x); ys.push(y); }
-      }
-    }
-    for (const f of r.fittings || []) {
-      for (const [x, y] of (f.positions || [])) { xs.push(x); ys.push(y); }
-    }
-    if (xs.length > 0) {
-      bounds = {
-        min_x: Math.min(...xs),
-        min_y: Math.min(...ys),
-        max_x: Math.max(...xs),
-        max_y: Math.max(...ys),
-      };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const accum = (x: number, y: number) => {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    };
+    for (const f of r.fixtures || []) for (const [x, y] of (f.locations || [])) accum(x, y);
+    for (const p of r.pipes || []) for (const seg of (p.segments || [])) for (const [x, y] of seg) accum(x, y);
+    for (const f of r.fittings || []) for (const [x, y] of (f.positions || [])) accum(x, y);
+    if (minX !== Infinity) {
+      bounds = { min_x: minX, min_y: minY, max_x: maxX, max_y: maxY };
     }
   }
 
   return NextResponse.json({
     drawing_id: drawing.id,
     filename: drawing.filename,
-    bounds: bounds,
+    bounds,
     fixtures: (r.fixtures || []).map(f => ({ block_name: f.block_name, layer: f.layer, locations: f.locations })),
     pipes: (r.pipes || []).map(p => ({ layer: p.layer, service_type: p.service_type, segments: p.segments || [] })),
     fittings: (r.fittings || []).map(f => ({ layer: f.layer, fitting_type: f.fitting_type, positions: f.positions || [] })),
