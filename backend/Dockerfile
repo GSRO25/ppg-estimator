@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-venv python3.12-dev \
         libgl1-mesa-glx libglib2.0-0 \
         libx11-6 libxext6 libxrender1 libxkbcommon0 libfontconfig1 libgl1 libgomp1 \
+        libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+        libxcb-render-util0 libxcb-shape0 libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 \
+        libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0 libegl1 \
         xvfb \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
