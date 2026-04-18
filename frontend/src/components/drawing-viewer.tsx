@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type Pt = [number, number];
 
@@ -11,6 +11,8 @@ interface DrawingGeometry {
   fixtures: { block_name: string; layer: string; locations: Pt[] }[];
   pipes: { layer: string; service_type: string; segments: [Pt, Pt][] }[];
   fittings: { layer: string; fitting_type: string; positions: Pt[] }[];
+  layers?: string[];
+  svg_backdrop?: string | null;
 }
 
 // drawing_region stored on takeoff_items
@@ -30,6 +32,25 @@ interface Props {
   hoveredRegion?: { type: string; key: string } | null;
 }
 
+// Strip outer <svg ...>...</svg> wrapper so we can embed the backdrop
+// content as children of our own SVG element while keeping its inner geometry.
+function extractSvgInner(svg: string): string {
+  return svg.replace(/^[\s\S]*?<svg[^>]*>/i, '').replace(/<\/svg>\s*$/i, '');
+}
+
+// Convert a layer name into a CSS-safe class fragment. ezdxf's SVGBackend
+// emits layer groups; matching by data-attribute or class is fragile across
+// versions, so we scope our hide rules with attribute selectors below.
+function cssEscape(name: string): string {
+  return name.replace(/(["\\])/g, '\\$1');
+}
+
+function formatDistance(d: number): string {
+  if (!isFinite(d)) return '';
+  if (d < 1000) return `${d.toFixed(0)} mm`;
+  return `${(d / 1000).toFixed(2)} m`;
+}
+
 export default function DrawingViewer({
   drawingId,
   highlight,
@@ -46,6 +67,11 @@ export default function DrawingViewer({
   const panState = useRef<{ dragging: boolean; lastX: number; lastY: number; vb: number[]; didDrag: boolean; startX: number; startY: number }>({
     dragging: false, lastX: 0, lastY: 0, vb: [0, 0, 0, 0], didDrag: false, startX: 0, startY: 0,
   });
+
+  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  const [measureMode, setMeasureMode] = useState(false);
+  const [measurePoints, setMeasurePoints] = useState<Pt[]>([]);
+  const [cursorCad, setCursorCad] = useState<Pt | null>(null);
 
   useEffect(() => {
     fetch(`/api/drawings/${drawingId}/geometry`)
@@ -66,6 +92,43 @@ export default function DrawingViewer({
     const vb = [b.min_x - pad, b.min_y - pad, w + pad * 2, h + pad * 2];
     setViewBox(vb.join(' '));
     panState.current.vb = vb;
+  }, [geom]);
+
+  // Keyboard: M toggles measure, Esc cancels.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        setMeasureMode(m => !m);
+        setMeasurePoints([]);
+      } else if (e.key === 'Escape') {
+        if (measureMode || measurePoints.length > 0) {
+          setMeasureMode(false);
+          setMeasurePoints([]);
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [measureMode, measurePoints.length]);
+
+  // Convert a screen-space mouse event to CAD-space coordinates, accounting
+  // for the Y-flip transform applied to the inner <g>.
+  const screenToCad = useCallback((clientX: number, clientY: number): Pt | null => {
+    const svg = svgRef.current;
+    if (!svg || !geom?.bounds) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const p = pt.matrixTransform(ctm.inverse());
+    // Inner group transform: translate(0, min_y+max_y) scale(1,-1)
+    // So CAD x = svg x; CAD y = (min_y+max_y) - svg y
+    const cadX = p.x;
+    const cadY = (geom.bounds.min_y + geom.bounds.max_y) - p.y;
+    return [cadX, cadY];
   }, [geom]);
 
   // Zoom with mouse wheel
@@ -90,6 +153,7 @@ export default function DrawingViewer({
   }
 
   function handleMouseDown(e: React.MouseEvent<SVGSVGElement>) {
+    if (measureMode) return; // measure handles clicks; suppress pan-drag
     panState.current.dragging = true;
     panState.current.lastX = e.clientX;
     panState.current.lastY = e.clientY;
@@ -99,6 +163,11 @@ export default function DrawingViewer({
     panState.current.vb = viewBox.split(' ').map(Number);
   }
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (measureMode) {
+      const cad = screenToCad(e.clientX, e.clientY);
+      setCursorCad(cad);
+      return;
+    }
     if (!panState.current.dragging) return;
     const svg = svgRef.current;
     if (!svg) return;
@@ -118,6 +187,24 @@ export default function DrawingViewer({
     panState.current.dragging = false;
   }
 
+  function handleSvgClick(e: React.MouseEvent<SVGSVGElement>) {
+    if (!measureMode) return;
+    const cad = screenToCad(e.clientX, e.clientY);
+    if (!cad) return;
+    setMeasurePoints(pts => {
+      if (pts.length === 0 || pts.length >= 2) return [cad];
+      return [pts[0], cad];
+    });
+  }
+
+  function toggleLayer(name: string) {
+    setHiddenLayers(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
+
   const bounds = geom?.bounds;
   const pointRadius = useMemo(() => {
     if (!bounds) return 1;
@@ -131,6 +218,48 @@ export default function DrawingViewer({
   }, [bounds]);
 
   const isInline = mode === 'inline';
+
+  // Memoize the inner backdrop markup so we only parse/strip the SVG string
+  // once per geometry load, not on every render.
+  const backdropInner = useMemo(() => {
+    if (!geom?.svg_backdrop) return null;
+    return extractSvgInner(geom.svg_backdrop);
+  }, [geom?.svg_backdrop]);
+
+  // Build a CSS rule string that hides matching layer groups in the backdrop.
+  // ezdxf 1.x emits layer groups carrying the layer name; we match defensively
+  // on common attributes (`data-layer`, `class`, and `id`) to cover variants.
+  const backdropHideCss = useMemo(() => {
+    if (hiddenLayers.size === 0) return '';
+    return Array.from(hiddenLayers).map(name => {
+      const safe = cssEscape(name);
+      return `.backdrop [data-layer="${safe}"], `
+        + `.backdrop g[id="${safe}"], `
+        + `.backdrop g.${name.replace(/[^A-Za-z0-9_-]/g, '_')} `
+        + `{ display: none !important; }`;
+    }).join('\n');
+  }, [hiddenLayers]);
+
+  const visibleFixtures = useMemo(
+    () => (geom?.fixtures || []).filter(f => !hiddenLayers.has(f.layer)),
+    [geom, hiddenLayers],
+  );
+  const visiblePipes = useMemo(
+    () => (geom?.pipes || []).filter(p => !hiddenLayers.has(p.layer)),
+    [geom, hiddenLayers],
+  );
+  const visibleFittings = useMemo(
+    () => (geom?.fittings || []).filter(f => !hiddenLayers.has(f.layer)),
+    [geom, hiddenLayers],
+  );
+
+  const measureDist = measurePoints.length === 2
+    ? Math.hypot(measurePoints[1][0] - measurePoints[0][0], measurePoints[1][1] - measurePoints[0][1])
+    : (measurePoints.length === 1 && cursorCad
+        ? Math.hypot(cursorCad[0] - measurePoints[0][0], cursorCad[1] - measurePoints[0][1])
+        : 0);
+
+  const cursorClass = measureMode ? 'cursor-crosshair' : 'cursor-move';
 
   return (
     <div className={isInline ? 'flex flex-col w-full h-full' : 'fixed inset-0 z-[60] flex flex-col bg-white'}>
@@ -150,13 +279,13 @@ export default function DrawingViewer({
             )}
           </div>
           <div className="flex gap-3 items-center">
-            <span className="text-xs text-gray-400">Scroll to zoom · drag to pan</span>
+            <span className="text-xs text-gray-400">Scroll to zoom · drag to pan · M to measure</span>
             <button onClick={() => onClose?.()} className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200">Close</button>
           </div>
         </div>
       )}
 
-      <div className={`flex-1 overflow-hidden ${isInline ? 'bg-slate-900' : 'bg-slate-50'}`}>
+      <div className={`relative flex-1 overflow-hidden ${isInline ? 'bg-slate-900' : 'bg-slate-50'}`}>
         {err && <div className="p-8 text-sm text-red-500">Failed to load: {err}</div>}
         {!geom && !err && <div className="p-8 text-sm text-gray-400">Loading drawing…</div>}
         {geom && !bounds && <div className="p-8 text-sm text-gray-400">No geometry available for this drawing.</div>}
@@ -165,15 +294,28 @@ export default function DrawingViewer({
             ref={svgRef}
             viewBox={viewBox}
             preserveAspectRatio="xMidYMid meet"
-            className="w-full h-full cursor-move"
+            className={`w-full h-full ${cursorClass}`}
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
+            onClick={handleSvgClick}
           >
+            {backdropHideCss && <style>{backdropHideCss}</style>}
             {/* Flip Y axis so drawing orientation matches CAD conventions */}
             <g transform={`translate(0, ${bounds.min_y + bounds.max_y}) scale(1, -1)`}>
+              {/* Backdrop SVG from ezdxf — placed first so it sits behind everything else.
+                  Faded so the extracted/interactive layer reads on top. */}
+              {backdropInner && (
+                <g
+                  className="backdrop"
+                  opacity={0.4}
+                  style={{ pointerEvents: 'none' }}
+                  dangerouslySetInnerHTML={{ __html: backdropInner }}
+                />
+              )}
+
               {/* Bounds outline */}
               <rect
                 x={bounds.min_x} y={bounds.min_y}
@@ -183,7 +325,7 @@ export default function DrawingViewer({
               />
 
               {/* Context: all pipes (faded) */}
-              {geom.pipes.flatMap(p => {
+              {visiblePipes.flatMap(p => {
                 const isHovered = hoveredRegion?.type === 'pipe' && hoveredRegion.key === p.layer;
                 return p.segments.map((s, i) => (
                   <line
@@ -194,13 +336,13 @@ export default function DrawingViewer({
                     className="cursor-pointer"
                     onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
                     onMouseLeave={() => onHoverRegion?.(null)}
-                    onClick={(e) => { if (panState.current.didDrag) return; e.stopPropagation(); onClickRegion?.({ type: 'pipe', key: p.layer }); }}
+                    onClick={(e) => { if (panState.current.didDrag || measureMode) return; e.stopPropagation(); onClickRegion?.({ type: 'pipe', key: p.layer }); }}
                   />
                 ));
               })}
 
               {/* Context: fixtures (faded dots) */}
-              {geom.fixtures.flatMap(f =>
+              {visibleFixtures.flatMap(f =>
                 f.locations.map((loc, i) => {
                   const isHovered = hoveredRegion?.type === 'fixture' && hoveredRegion.key === f.block_name;
                   return (
@@ -211,14 +353,14 @@ export default function DrawingViewer({
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fixture', key: f.block_name })}
                       onMouseLeave={() => onHoverRegion?.(null)}
-                      onClick={(e) => { if (panState.current.didDrag) return; e.stopPropagation(); onClickRegion?.({ type: 'fixture', key: f.block_name }); }}
+                      onClick={(e) => { if (panState.current.didDrag || measureMode) return; e.stopPropagation(); onClickRegion?.({ type: 'fixture', key: f.block_name }); }}
                     />
                   );
                 })
               )}
 
               {/* Context: fittings (faded squares) */}
-              {geom.fittings.flatMap(f =>
+              {visibleFittings.flatMap(f =>
                 (f.positions || []).map((pos, i) => {
                   const isHovered = hoveredRegion?.type === 'fitting' && hoveredRegion.key === f.layer;
                   return (
@@ -230,7 +372,7 @@ export default function DrawingViewer({
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fitting', key: f.layer })}
                       onMouseLeave={() => onHoverRegion?.(null)}
-                      onClick={(e) => { if (panState.current.didDrag) return; e.stopPropagation(); onClickRegion?.({ type: 'fitting', key: f.layer }); }}
+                      onClick={(e) => { if (panState.current.didDrag || measureMode) return; e.stopPropagation(); onClickRegion?.({ type: 'fitting', key: f.layer }); }}
                     />
                   );
                 })
@@ -260,8 +402,97 @@ export default function DrawingViewer({
                   fill="#ef4444" stroke="#b91c1c" strokeWidth={strokeBase}
                 />
               ))}
+
+              {/* Measure tool overlay (in CAD coords, inside Y-flipped group) */}
+              {measureMode && measurePoints.length === 1 && cursorCad && (
+                <line
+                  x1={measurePoints[0][0]} y1={measurePoints[0][1]}
+                  x2={cursorCad[0]} y2={cursorCad[1]}
+                  stroke="#F59E0B" strokeDasharray="6 4"
+                  strokeWidth={strokeBase * 1.5}
+                  pointerEvents="none"
+                />
+              )}
+              {measurePoints.length >= 1 && (
+                <circle
+                  cx={measurePoints[0][0]} cy={measurePoints[0][1]}
+                  r={pointRadius * 1.4} fill="#F59E0B"
+                  pointerEvents="none"
+                />
+              )}
+              {measurePoints.length === 2 && (
+                <>
+                  <line
+                    x1={measurePoints[0][0]} y1={measurePoints[0][1]}
+                    x2={measurePoints[1][0]} y2={measurePoints[1][1]}
+                    stroke="#F59E0B" strokeDasharray="8 4"
+                    strokeWidth={strokeBase * 2}
+                    pointerEvents="none"
+                  />
+                  <circle
+                    cx={measurePoints[1][0]} cy={measurePoints[1][1]}
+                    r={pointRadius * 1.4} fill="#F59E0B"
+                    pointerEvents="none"
+                  />
+                </>
+              )}
             </g>
+
+            {/* Measure label rendered outside the Y-flip group so the text
+                is not mirrored. Positioned in CAD-x but mirrored CAD-y. */}
+            {measurePoints.length >= 1 && (measurePoints.length === 2 || cursorCad) && (() => {
+              const a = measurePoints[0];
+              const b = measurePoints.length === 2 ? measurePoints[1] : (cursorCad as Pt);
+              const midX = (a[0] + b[0]) / 2;
+              const midCadY = (a[1] + b[1]) / 2;
+              // Mirror CAD-y back into SVG-y because we are outside the flipped group.
+              const midSvgY = (bounds.min_y + bounds.max_y) - midCadY;
+              const fontSize = Math.max(strokeBase * 24, (bounds.max_y - bounds.min_y) * 0.012);
+              return (
+                <text
+                  x={midX} y={midSvgY - fontSize * 0.6}
+                  fill="#F59E0B" fontSize={fontSize} fontWeight="bold"
+                  textAnchor="middle"
+                  pointerEvents="none"
+                  style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: fontSize * 0.25 }}
+                >
+                  {formatDistance(measureDist)}
+                </text>
+              );
+            })()}
           </svg>
+        )}
+
+        {/* Layer toggle panel — top-left */}
+        {geom?.layers && geom.layers.length > 0 && (
+          <div className="absolute top-2 left-2 bg-white/95 rounded-md shadow-md p-2 text-xs max-h-64 overflow-y-auto max-w-[220px] z-10">
+            <div className="font-semibold text-slate-700 mb-1">Layers</div>
+            {geom.layers.map(l => (
+              <label key={l} className="flex items-center gap-1.5 py-0.5 text-slate-600 hover:text-slate-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!hiddenLayers.has(l)}
+                  onChange={() => toggleLayer(l)}
+                  className="w-3 h-3"
+                />
+                <span className="truncate" title={l}>{l}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {/* Toolbar — top-right */}
+        {geom && bounds && (
+          <div className="absolute top-2 right-2 flex gap-1 bg-white/95 rounded-md shadow-md p-1 z-10">
+            <button
+              type="button"
+              onClick={() => { setMeasureMode(m => !m); setMeasurePoints([]); }}
+              className={`px-2 py-1 text-xs rounded ${measureMode ? 'bg-amber-500 text-white' : 'hover:bg-slate-100 text-slate-700'}`}
+              title="Measure (M) · Esc to cancel"
+            >
+              Measure {measureMode ? '(on)' : ''}
+            </button>
+          </div>
         )}
       </div>
     </div>

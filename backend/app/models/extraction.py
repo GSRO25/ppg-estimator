@@ -61,3 +61,6 @@ class ExtractionResult(BaseModel):
     annotations: list[ExtractedAnnotation]
     bounds: Optional[DrawingBounds] = None
     warnings: list[str] = []
+    # Optional SVG backdrop rendered from the source DXF/DWG via ezdxf's drawing addon.
+    # Embedded behind extracted elements in the viewer to give walls/text/hatches context.
+    svg_backdrop: Optional[str] = None

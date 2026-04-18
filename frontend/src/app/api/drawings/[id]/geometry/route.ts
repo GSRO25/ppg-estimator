@@ -12,6 +12,8 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     fixtures?: { block_name: string; layer: string; locations: [number, number][] }[];
     pipes?: { layer: string; service_type: string; segments?: [number, number][][] }[];
     fittings?: { layer: string; fitting_type: string; positions?: [number, number][] }[];
+    layers?: ({ name: string; entity_count?: number; color?: number } | string)[];
+    svg_backdrop?: string | null;
   } | null }>(
     'SELECT id, filename, extraction_result FROM drawings WHERE id = $1',
     [id]
@@ -37,6 +39,19 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     }
   }
 
+  // Layer names: prefer the explicit layers list from extraction; fall back to
+  // the union of layers seen on extracted fixtures/pipes/fittings (covers
+  // older extractions where `layers` may be missing or in a different shape).
+  const layerSet = new Set<string>();
+  for (const l of r.layers || []) {
+    if (typeof l === 'string') layerSet.add(l);
+    else if (l && typeof l === 'object' && typeof l.name === 'string') layerSet.add(l.name);
+  }
+  for (const f of r.fixtures || []) if (f.layer) layerSet.add(f.layer);
+  for (const p of r.pipes || []) if (p.layer) layerSet.add(p.layer);
+  for (const f of r.fittings || []) if (f.layer) layerSet.add(f.layer);
+  const layers = Array.from(layerSet).sort();
+
   return NextResponse.json({
     drawing_id: drawing.id,
     filename: drawing.filename,
@@ -44,5 +59,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     fixtures: (r.fixtures || []).map(f => ({ block_name: f.block_name, layer: f.layer, locations: f.locations })),
     pipes: (r.pipes || []).map(p => ({ layer: p.layer, service_type: p.service_type, segments: p.segments || [] })),
     fittings: (r.fittings || []).map(f => ({ layer: f.layer, fitting_type: f.fitting_type, positions: f.positions || [] })),
+    layers,
+    svg_backdrop: r.svg_backdrop ?? null,
   });
 }

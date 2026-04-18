@@ -2,6 +2,7 @@ import ezdxf
 import os
 import subprocess
 import time
+import traceback
 from app.models.extraction import ExtractionResult, DrawingBounds
 from app.services.layer_analyzer import analyze_layers
 from app.services.block_counter import count_blocks
@@ -58,6 +59,8 @@ def parse_drawing(file_path: str) -> ExtractionResult:
     # Compute drawing bounds from extracted geometry (fallback: DWG extents)
     bounds = _compute_bounds(pipes, fixtures, fittings, doc)
 
+    svg_backdrop = _render_dxf_to_svg(doc, warnings)
+
     return ExtractionResult(
         filename=os.path.basename(file_path),
         format=ext.lstrip("."),
@@ -69,7 +72,37 @@ def parse_drawing(file_path: str) -> ExtractionResult:
         annotations=read_annotations(msp),
         bounds=bounds,
         warnings=warnings,
+        svg_backdrop=svg_backdrop,
     )
+
+
+def _render_dxf_to_svg(doc, warnings: list[str]) -> str | None:
+    """Render the DXF modelspace to an SVG string via ezdxf's drawing addon.
+
+    Returns None on failure (the viewer will simply omit the backdrop).
+    Layer names are emitted as CSS classes on the layer <g> elements so the
+    frontend can toggle them with display:none.
+    """
+    try:
+        from ezdxf.addons.drawing import Frontend, RenderContext
+        from ezdxf.addons.drawing.svg import SVGBackend
+        from ezdxf.addons.drawing.config import Configuration, LineweightPolicy
+
+        msp = doc.modelspace()
+        ctx = RenderContext(doc)
+        backend = SVGBackend()
+        # Configuration kwargs vary across ezdxf 1.x; pass only what we know
+        # exists, and let other settings fall back to defaults.
+        try:
+            cfg = Configuration(lineweight_policy=LineweightPolicy.ABSOLUTE)
+        except TypeError:
+            cfg = Configuration()
+        Frontend(ctx, backend, config=cfg).draw_layout(msp)
+        return backend.get_string()
+    except Exception as e:  # noqa: BLE001 — backdrop is best-effort
+        warnings.append(f"svg_backdrop render failed: {e}")
+        traceback.print_exc()
+        return None
 
 
 def _compute_bounds(pipes, fixtures, fittings, doc) -> DrawingBounds | None:
