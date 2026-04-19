@@ -147,13 +147,26 @@ export default function DrawingViewer({
       .catch(e => setErr(String(e)));
   }, [drawingId]);
 
-  // Hard limits for panning — use drawing_extents when available (full sheet),
-  // fall back to geometry bounds. Used by clampVB to stop the user from
-  // scrolling completely off the drawing.
-  const panLimits = useMemo(() => geom?.drawing_extents ?? geom?.bounds ?? null, [geom]);
+  // Tightest bounding box of the pipe network — the most reliable signal for
+  // where the actual plumbing drawing content lives. Fixtures can scatter into
+  // legend pages; pipes almost never do.
+  const pipeBounds = useMemo(() => {
+    if (!geom?.pipes?.length) return null;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const p of geom.pipes) {
+      for (const seg of p.segments) {
+        for (const pt of seg) { xs.push(pt[0]); ys.push(pt[1]); }
+      }
+    }
+    if (!xs.length) return null;
+    return { min_x: Math.min(...xs), max_x: Math.max(...xs), min_y: Math.min(...ys), max_y: Math.max(...ys) };
+  }, [geom]);
 
-  // Clamp a viewBox so its centre stays within the drawing limits.
-  // This prevents panning the drawing completely off-screen.
+  // Pan clamping uses geometry bounds (not drawing_extents) so the user cannot
+  // scroll out to title blocks or legend pages that live at a large offset.
+  const panLimits = useMemo(() => pipeBounds ?? geom?.bounds ?? null, [pipeBounds, geom]);
+
   const clampVB = useCallback((vb: number[]): number[] => {
     if (!panLimits) return vb;
     const [x, y, w, h] = vb;
@@ -162,32 +175,31 @@ export default function DrawingViewer({
     return [cx - w / 2, cy - h / 2, w, h];
   }, [panLimits]);
 
-  // Initial viewBox — fit to extracted geometry bounds so the drawing fills
-  // the viewport on load. (drawing_extents can be the full DXF paper space
-  // which is far larger than the actual content, leaving the drawing tiny.)
+  // Initial viewBox — zoom to pipe network on load so the relevant drawing
+  // content fills the screen. Falls back to geometry bounds if no pipes.
   useEffect(() => {
     if (!geom) return;
-    const b = geom.bounds;
+    const b = pipeBounds ?? geom.bounds;
     if (!b) return;
     const w = b.max_x - b.min_x;
     const h = b.max_y - b.min_y;
-    const pad = Math.max(w, h) * 0.05;
+    const pad = Math.max(w, h) * 0.08;
     const vb = [b.min_x - pad, b.min_y - pad, w + pad * 2, h + pad * 2];
     setViewBox(vb.join(' '));
     panState.current.vb = vb;
-  }, [geom]);
+  }, [geom, pipeBounds]);
 
-  // Fit geometry bounds (E key).
+  // Fit to pipe network (E key).
   const zoomExtents = useCallback(() => {
-    const b = geom?.bounds;
+    const b = pipeBounds ?? geom?.bounds;
     if (!b) return;
     const w = b.max_x - b.min_x;
     const h = b.max_y - b.min_y;
-    const pad = Math.max(w, h) * 0.05;
+    const pad = Math.max(w, h) * 0.08;
     const vb = [b.min_x - pad, b.min_y - pad, w + pad * 2, h + pad * 2];
     setViewBox(vb.join(' '));
     panState.current.vb = vb;
-  }, [geom]);
+  }, [geom, pipeBounds]);
 
   const toggleMeasure = useCallback(() => {
     setMeasureMode(m => !m);
