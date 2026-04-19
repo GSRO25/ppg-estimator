@@ -192,19 +192,48 @@ def _compute_bounds(pipes, fixtures, fittings, doc) -> DrawingBounds | None:
 
 
 def _dwg_extents(doc, fallback: DrawingBounds | None) -> DrawingBounds | None:
-    """True drawing extents from the DXF header. Falls back to the provided
-    extracted-geometry bounds when the header lacks valid $EXTMIN/$EXTMAX."""
+    """Compute the true bounding box ezdxf will render by iterating through
+    every modelspace entity. `$EXTMIN/$EXTMAX` from the header is often stale
+    or wrong — especially on Revit-exported DWGs — so we derive it ourselves.
+
+    Returns the union of the entity bounding box with the extracted-geometry
+    bounds (the fallback), so the backdrop is guaranteed to cover at least
+    everything we extracted.
+    """
+    ent_min_x = float("inf"); ent_min_y = float("inf")
+    ent_max_x = float("-inf"); ent_max_y = float("-inf")
+    try:
+        from ezdxf import bbox
+        msp = doc.modelspace()
+        extents = bbox.extents(msp, fast=True)
+        if extents.has_data:
+            ent_min_x = float(extents.extmin.x); ent_min_y = float(extents.extmin.y)
+            ent_max_x = float(extents.extmax.x); ent_max_y = float(extents.extmax.y)
+    except Exception:
+        pass
+
+    # Also check the DXF header extents as a secondary source
     try:
         ext_min = doc.header.get("$EXTMIN", None)
         ext_max = doc.header.get("$EXTMAX", None)
-        if ext_min is None or ext_max is None:
-            return fallback
-        min_x, min_y = float(ext_min[0]), float(ext_min[1])
-        max_x, max_y = float(ext_max[0]), float(ext_max[1])
-        # $EXTMIN/$EXTMAX can be uninitialized (1e20 sentinels) on drawings
-        # that have never been regenerated. Detect and fall back.
-        if max_x - min_x <= 0 or max_y - min_y <= 0 or abs(min_x) > 1e19 or abs(max_x) > 1e19:
-            return fallback
-        return DrawingBounds(min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y)
+        if ext_min and ext_max:
+            hx1, hy1 = float(ext_min[0]), float(ext_min[1])
+            hx2, hy2 = float(ext_max[0]), float(ext_max[1])
+            if abs(hx1) < 1e19 and abs(hx2) < 1e19 and hx2 > hx1 and hy2 > hy1:
+                ent_min_x = min(ent_min_x, hx1); ent_min_y = min(ent_min_y, hy1)
+                ent_max_x = max(ent_max_x, hx2); ent_max_y = max(ent_max_y, hy2)
     except Exception:
+        pass
+
+    # Union with extracted-geometry bounds so we never lose coverage of points
+    # that are sitting outside what ezdxf's extent calculation returned.
+    if fallback is not None:
+        ent_min_x = min(ent_min_x, fallback.min_x)
+        ent_min_y = min(ent_min_y, fallback.min_y)
+        ent_max_x = max(ent_max_x, fallback.max_x)
+        ent_max_y = max(ent_max_y, fallback.max_y)
+
+    if ent_min_x == float("inf") or ent_max_x - ent_min_x <= 0 or ent_max_y - ent_min_y <= 0:
         return fallback
+
+    return DrawingBounds(min_x=ent_min_x, min_y=ent_min_y, max_x=ent_max_x, max_y=ent_max_y)
