@@ -54,6 +54,19 @@ function cssEscape(name: string): string {
   return name.replace(/(["\\])/g, '\\$1');
 }
 
+// Map service type / layer name / block name to a semantic colour.
+// Checked in order; first match wins.
+function getServiceColor(serviceType?: string, layer?: string, extra?: string): string {
+  const t = [serviceType, layer, extra].filter(Boolean).join(' ').toLowerCase();
+  if (/fire|sprinkler|hydrant|hose\s*reel|fhd|fhr/.test(t))          return '#ef4444'; // red
+  if (/cold.?water|cws|domestic|potable|water.?supply|chilled/.test(t)) return '#3b82f6'; // blue
+  if (/hot.?water|hws|heated|solar|thermostatic/.test(t))              return '#f97316'; // orange
+  if (/drain|sewer|waste|sanit|soil|vent|stormwater/.test(t))          return '#92400e'; // brown
+  if (/gas/.test(t))                                                    return '#ca8a04'; // amber
+  if (/fitout|fixture|fitment/.test(t))                                 return '#22c55e'; // green
+  return '#94a3b8'; // default slate
+}
+
 function formatDistance(d: number): string {
   if (!isFinite(d)) return '';
   if (d < 1000) return `${d.toFixed(0)} mm`;
@@ -107,7 +120,7 @@ export default function DrawingViewer({
   });
 
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
-  const [showBackdrop, setShowBackdrop] = useState(false);
+  const [showBackdrop, setShowBackdrop] = useState(true);
   const [showLayerPanel, setShowLayerPanel] = useState(false);
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState<Pt[]>([]);
@@ -517,9 +530,10 @@ export default function DrawingViewer({
                 fill="none" stroke="#e2e8f0" strokeWidth={strokeBase}
               />
 
-              {/* Context: all pipes (faded) */}
+              {/* Context: all pipes — coloured by service type */}
               {visiblePipes.flatMap(p => {
                 const isHovered = hoveredRegion?.type === 'pipe' && hoveredRegion.key === p.layer;
+                const baseColor = getServiceColor(p.service_type, p.layer);
                 return p.segments.map((s, i) => {
                   const isSelected = selected?.kind === 'pipe' && selected.layer === p.layer
                     && selected.segment[0][0] === s[0][0] && selected.segment[0][1] === s[0][1]
@@ -528,8 +542,9 @@ export default function DrawingViewer({
                     <line
                       key={`p-${p.layer}-${i}`}
                       x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
-                      stroke={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : '#cbd5e1')}
-                      strokeWidth={isSelected ? strokeBase * 3 : (isHovered ? strokeBase * 2 : strokeBase)}
+                      stroke={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
+                      strokeWidth={isSelected ? strokeBase * 3 : (isHovered ? strokeBase * 2 : strokeBase * 1.5)}
+                      opacity={isSelected || isHovered ? 1 : 0.65}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
                       onMouseLeave={() => onHoverRegion?.(null)}
@@ -545,9 +560,10 @@ export default function DrawingViewer({
                 });
               })}
 
-              {/* Context: fixtures (faded dots) */}
-              {visibleFixtures.flatMap(f =>
-                f.locations.map((loc, i) => {
+              {/* Context: fixtures — coloured by layer/block */}
+              {visibleFixtures.flatMap(f => {
+                const baseColor = getServiceColor(undefined, f.layer, f.block_name);
+                return f.locations.map((loc, i) => {
                   const isHovered = hoveredRegion?.type === 'fixture' && hoveredRegion.key === f.block_name;
                   const isSelected = selected?.kind === 'fixture' && selected.block_name === f.block_name
                     && selected.location[0] === loc[0] && selected.location[1] === loc[1];
@@ -555,9 +571,10 @@ export default function DrawingViewer({
                     <circle
                       key={`fx-${f.block_name}-${i}`}
                       cx={loc[0]} cy={loc[1]} r={isSelected ? pointRadius * 1.4 : pointRadius}
-                      fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : '#cbd5e1')}
-                      stroke={isSelected ? '#F59E0B' : 'none'}
-                      strokeWidth={isSelected ? strokeBase * 3 : 0}
+                      fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
+                      stroke={isSelected ? '#F59E0B' : baseColor}
+                      strokeWidth={isSelected ? strokeBase * 3 : strokeBase}
+                      opacity={isSelected || isHovered ? 1 : 0.65}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fixture', key: f.block_name })}
                       onMouseLeave={() => onHoverRegion?.(null)}
@@ -569,12 +586,13 @@ export default function DrawingViewer({
                       }}
                     />
                   );
-                })
-              )}
+                });
+              })}
 
-              {/* Context: fittings (faded squares) */}
-              {visibleFittings.flatMap(f =>
-                (f.positions || []).map((pos, i) => {
+              {/* Context: fittings — coloured by layer/fitting_type */}
+              {visibleFittings.flatMap(f => {
+                const baseColor = getServiceColor(undefined, f.layer, f.fitting_type);
+                return (f.positions || []).map((pos, i) => {
                   const isHovered = hoveredRegion?.type === 'fitting' && hoveredRegion.key === f.layer;
                   const isSelected = selected?.kind === 'fitting' && selected.layer === f.layer
                     && selected.position[0] === pos[0] && selected.position[1] === pos[1];
@@ -583,9 +601,10 @@ export default function DrawingViewer({
                       key={`ctx-ft-${f.layer}-${i}`}
                       x={pos[0] - pointRadius} y={pos[1] - pointRadius}
                       width={pointRadius * 2} height={pointRadius * 2}
-                      fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : '#cbd5e1')}
-                      stroke={isSelected ? '#F59E0B' : 'none'}
-                      strokeWidth={isSelected ? strokeBase * 3 : 0}
+                      fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
+                      stroke={isSelected ? '#F59E0B' : baseColor}
+                      strokeWidth={isSelected ? strokeBase * 3 : strokeBase}
+                      opacity={isSelected || isHovered ? 1 : 0.65}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fitting', key: f.layer })}
                       onMouseLeave={() => onHoverRegion?.(null)}
@@ -597,8 +616,8 @@ export default function DrawingViewer({
                       }}
                     />
                   );
-                })
-              )}
+                });
+              })}
 
               {/* Highlight layer on top */}
               {highlight?.type === 'fixture' && highlight.locations.map((loc, i) => (
@@ -720,12 +739,30 @@ export default function DrawingViewer({
 
         {/* Toolbar — top-right */}
         {geom && bounds && (
-          <div className="absolute top-2 right-2 flex gap-1 bg-white/95 rounded-md shadow-md p-1 z-10">
-            <ToolBtn active={false} onClick={zoomExtents} title="Zoom Extents (E)">⛶</ToolBtn>
-            <ToolBtn active={measureMode} onClick={toggleMeasure} title="Measure (M)">📐</ToolBtn>
-            <ToolBtn active={showLayerPanel} onClick={() => setShowLayerPanel(v => !v)} title="Toggle Layers Panel (L)">📋</ToolBtn>
-            <ToolBtn active={showBackdrop} onClick={() => setShowBackdrop(v => !v)} title="Toggle Drawing Backdrop (B)">🗺️</ToolBtn>
-            <ToolBtn active={false} onClick={clearSelection} title="Clear Selection (Esc)">↶</ToolBtn>
+          <div className="absolute top-2 right-2 flex flex-col gap-1 items-end z-10">
+            <div className="flex gap-1 bg-white/95 rounded-md shadow-md p-1">
+              <ToolBtn active={false} onClick={zoomExtents} title="Zoom Extents (E)">⛶</ToolBtn>
+              <ToolBtn active={measureMode} onClick={toggleMeasure} title="Measure (M)">📐</ToolBtn>
+              <ToolBtn active={showLayerPanel} onClick={() => setShowLayerPanel(v => !v)} title="Toggle Layers Panel (L)">📋</ToolBtn>
+              <ToolBtn active={showBackdrop} onClick={() => setShowBackdrop(v => !v)} title="Toggle Drawing Backdrop (B)">🗺️</ToolBtn>
+              <ToolBtn active={false} onClick={clearSelection} title="Clear Selection (Esc)">↶</ToolBtn>
+            </div>
+            <div className="flex gap-2 bg-white/95 rounded-md shadow-md px-2 py-1 text-[10px] font-medium">
+              {([
+                ['#ef4444', 'Fire'],
+                ['#3b82f6', 'Water'],
+                ['#f97316', 'Hot Water'],
+                ['#92400e', 'Drainage'],
+                ['#ca8a04', 'Gas'],
+                ['#22c55e', 'Fitout'],
+                ['#94a3b8', 'Other'],
+              ] as [string, string][]).map(([color, label]) => (
+                <span key={label} className="flex items-center gap-1 text-slate-700">
+                  <span style={{ background: color, width: 8, height: 8, borderRadius: 2, display: 'inline-block', flexShrink: 0 }} />
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
