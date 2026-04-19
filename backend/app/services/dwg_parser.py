@@ -4,7 +4,7 @@ import re
 import subprocess
 import time
 import traceback
-from app.models.extraction import ExtractionResult, DrawingBounds
+from app.models.extraction import ExtractionResult, DrawingBounds, ExtractedFixture, ExtractedFitting
 from app.services.layer_analyzer import analyze_layers
 from app.services.block_counter import count_blocks
 from app.services.polyline_measurer import measure_polylines
@@ -58,6 +58,14 @@ def parse_drawing(file_path: str) -> ExtractionResult:
     pipes = measure_polylines(doc)
     fixtures = count_blocks(msp)
     fittings = infer_fittings(msp)
+
+    # Drop fixtures/fittings that sit outside the pipe-network area.
+    # Legend pages place duplicate block inserts as symbol keys at a separate
+    # location in modelspace — typically with a large X or Y offset from the
+    # actual drawing. Since those regions contain no pipes, we use the pipe
+    # bounding box (plus a 25 % margin) as the authoritative drawing area and
+    # discard anything outside it.
+    fixtures, fittings = _filter_to_drawing_area(fixtures, fittings, pipes)
 
     # Compute drawing bounds from extracted geometry (fallback: DWG extents)
     bounds = _compute_bounds(pipes, fixtures, fittings, doc)
@@ -166,6 +174,65 @@ def _render_dxf_to_svg(doc, warnings: list[str]) -> dict | None:
         warnings.append(f"svg_backdrop render failed: {e}")
         traceback.print_exc()
         return None
+
+
+def _filter_to_drawing_area(fixtures, fittings, pipes):
+    """Remove fixture/fitting locations that are outside the pipe-network area.
+
+    Builds an expanded bounding box from all pipe segment endpoints (25 %
+    margin on each side) and drops any insertion/position points outside it.
+    This eliminates block symbols placed on legend or notes pages, which live
+    at a different modelspace offset from the real drawing content.
+
+    If no pipes were extracted the geometry is returned unchanged — there is no
+    reference area to filter against.
+    """
+    pipe_pts = [
+        (x, y)
+        for p in pipes
+        for seg in p.segments
+        for (x, y) in seg
+    ]
+    if not pipe_pts:
+        return fixtures, fittings
+
+    px = [p[0] for p in pipe_pts]
+    py = [p[1] for p in pipe_pts]
+    p_min_x, p_max_x = min(px), max(px)
+    p_min_y, p_max_y = min(py), max(py)
+
+    mx = max(p_max_x - p_min_x, 1.0) * 0.25
+    my = max(p_max_y - p_min_y, 1.0) * 0.25
+    bx0, bx1 = p_min_x - mx, p_max_x + mx
+    by0, by1 = p_min_y - my, p_max_y + my
+
+    def _inside(loc):
+        return bx0 <= loc[0] <= bx1 and by0 <= loc[1] <= by1
+
+    filtered_fixtures = []
+    for f in fixtures:
+        locs = [loc for loc in f.locations if _inside(loc)]
+        if locs:
+            filtered_fixtures.append(ExtractedFixture(
+                block_name=f.block_name,
+                count=len(locs),
+                layer=f.layer,
+                locations=locs,
+            ))
+
+    filtered_fittings = []
+    for ft in fittings:
+        pos = [p for p in ft.positions if _inside(p)]
+        if pos:
+            filtered_fittings.append(ExtractedFitting(
+                fitting_type=ft.fitting_type,
+                layer=ft.layer,
+                service_type=ft.service_type,
+                count=len(pos),
+                positions=pos,
+            ))
+
+    return filtered_fixtures, filtered_fittings
 
 
 def _compute_bounds(pipes, fixtures, fittings, doc) -> DrawingBounds | None:
