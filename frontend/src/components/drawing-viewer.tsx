@@ -30,15 +30,24 @@ type SelectedEntity =
   | { kind: 'pipe'; layer: string; service_type: string; segment: [Pt, Pt]; length: number }
   | { kind: 'fitting'; fitting_type: string; layer: string; position: Pt };
 
+export interface TooltipRow {
+  description: string;
+  uom: string;
+  final_qty: number;
+  labour_rate: number | null;
+  material_rate: number | null;
+  rate_card_item_id: number | null;
+}
+
 interface Props {
   drawingId: number;
   highlight: Highlight | null;
   onClose?: () => void;
-  // NEW:
   mode?: 'modal' | 'inline';
   onHoverRegion?: (region: { type: string; key: string } | null) => void;
   onClickRegion?: (region: { type: string; key: string }) => void;
   hoveredRegion?: { type: string; key: string } | null;
+  tooltipRow?: TooltipRow | null;
 }
 
 // Strip outer <svg ...>...</svg> wrapper so we can embed the backdrop
@@ -110,10 +119,13 @@ export default function DrawingViewer({
   onHoverRegion,
   onClickRegion,
   hoveredRegion = null,
+  tooltipRow = null,
 }: Props) {
   const [geom, setGeom] = useState<DrawingGeometry | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const [viewBox, setViewBox] = useState<string>('');
   const panState = useRef<{ dragging: boolean; lastX: number; lastY: number; vb: number[]; didDrag: boolean; startX: number; startY: number }>({
     dragging: false, lastX: 0, lastY: 0, vb: [0, 0, 0, 0], didDrag: false, startX: 0, startY: 0,
@@ -284,6 +296,12 @@ export default function DrawingViewer({
     const cad = screenToCad(e.clientX, e.clientY);
     setCursorCad(cad);
 
+    // Track screen position for tooltip
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+
     if (measureMode) {
       // Compute the snap radius in CAD units = ~10 screen pixels, derived
       // from the current viewBox width vs. SVG client width.
@@ -322,6 +340,7 @@ export default function DrawingViewer({
     panState.current.dragging = false;
     setCursorCad(null);
     setSnapPoint(null);
+    setTooltipPos(null);
   }
 
   function handleSvgClick(e: React.MouseEvent<SVGSVGElement>) {
@@ -444,7 +463,7 @@ export default function DrawingViewer({
         </div>
       )}
 
-      <div className={`relative flex-1 overflow-hidden ${isInline ? 'bg-slate-900' : 'bg-slate-50'}`}>
+      <div ref={containerRef} className={`relative flex-1 overflow-hidden ${isInline ? 'bg-slate-900' : 'bg-slate-50'}`}>
         {err && <div className="p-8 text-sm text-red-500">Failed to load: {err}</div>}
         {!geom && !err && <div className="p-8 text-sm text-gray-400">Loading drawing…</div>}
         {geom && !bounds && <div className="p-8 text-sm text-gray-400">No geometry available for this drawing.</div>}
@@ -804,6 +823,29 @@ export default function DrawingViewer({
                 <div><dt className="inline font-medium">Position: </dt><dd className="inline">{formatCoord(selectedDisplayPos)}</dd></div>
               )}
             </dl>
+          </div>
+        )}
+
+        {/* Hover tooltip — shows the associated takeoff line item */}
+        {tooltipRow && tooltipPos && (
+          <div
+            className="absolute z-30 pointer-events-none bg-white rounded-lg shadow-xl border border-slate-200 p-3 text-xs max-w-[280px]"
+            style={{
+              left: Math.min(tooltipPos.x + 16, (containerRef.current?.clientWidth ?? 9999) - 296),
+              top: Math.max(4, tooltipPos.y - 70),
+            }}
+          >
+            <div className="font-semibold text-slate-800 mb-1 leading-tight">{tooltipRow.description}</div>
+            <div className="text-slate-500 mb-1">{tooltipRow.final_qty} {tooltipRow.uom}</div>
+            <div className="flex gap-3 text-slate-600">
+              <span>L: {tooltipRow.labour_rate != null ? `$${tooltipRow.labour_rate.toFixed(2)}` : '—'}</span>
+              <span>M: {tooltipRow.material_rate != null ? `$${tooltipRow.material_rate.toFixed(2)}` : '—'}</span>
+            </div>
+            {tooltipRow.rate_card_item_id ? (
+              <div className="mt-1.5 text-green-600 font-medium">✓ Mapped to rate card</div>
+            ) : (
+              <div className="mt-1.5 text-amber-600 font-medium">⚠ Not mapped — click to assign</div>
+            )}
           </div>
         )}
       </div>
