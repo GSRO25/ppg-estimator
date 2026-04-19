@@ -14,6 +14,7 @@ interface DrawingGeometry {
   layers?: string[];
   svg_backdrop?: string | null;
   svg_backdrop_viewbox?: [number, number, number, number] | null;
+  drawing_extents?: { min_x: number; min_y: number; max_x: number; max_y: number } | null;
 }
 
 // drawing_region stored on takeoff_items
@@ -121,15 +122,16 @@ export default function DrawingViewer({
       .catch(e => setErr(String(e)));
   }, [drawingId]);
 
-  // Initial viewBox from bounds
+  // Initial viewBox — prefer true drawing extents (full drawing) over the
+  // narrower extracted-geometry bounds, so the user sees the whole sheet on
+  // load, with extracted fixtures/pipes overlaid.
   useEffect(() => {
     if (!geom) return;
-    const b = geom.bounds;
+    const b = geom.drawing_extents ?? geom.bounds;
     if (!b) return;
     const w = b.max_x - b.min_x;
     const h = b.max_y - b.min_y;
     const pad = Math.max(w, h) * 0.05;
-    // SVG Y is flipped relative to CAD Y — we'll flip via scale transform on the group
     const vb = [b.min_x - pad, b.min_y - pad, w + pad * 2, h + pad * 2];
     setViewBox(vb.join(' '));
     panState.current.vb = vb;
@@ -137,8 +139,8 @@ export default function DrawingViewer({
 
   // Reset to fit-all view. Same computation as the initial-load effect.
   const zoomExtents = useCallback(() => {
-    if (!geom?.bounds) return;
-    const b = geom.bounds;
+    const b = geom?.drawing_extents ?? geom?.bounds;
+    if (!b) return;
     const w = b.max_x - b.min_x;
     const h = b.max_y - b.min_y;
     const pad = Math.max(w, h) * 0.05;
@@ -466,21 +468,22 @@ export default function DrawingViewer({
                   const cadW = bounds.max_x - bounds.min_x;
                   const cadH = bounds.max_y - bounds.min_y;
                   if (vw > 0 && vh > 0 && cadW > 0 && cadH > 0) {
-                    // Use uniform scale so the backdrop keeps its natural
-                    // aspect ratio. CAD bounds come from extracted geometry
-                    // only, so they may be narrower than the full drawing —
-                    // the backdrop will overflow, which is correct. User can
-                    // pan to explore context beyond the extracted region.
-                    const s = Math.min(cadW / vw, cadH / vh);
-                    const cadCX = (bounds.min_x + bounds.max_x) / 2;
-                    const cadCY = (bounds.min_y + bounds.max_y) / 2;
-                    const vbCX = vx + vw / 2;
-                    const vbCY = vy + vh / 2;
-                    // Center viewBox on CAD bounds center, with Y-flip (ezdxf Y-down → CAD Y-up).
-                    const tx = cadCX - vbCX * s;
-                    const ty = cadCY + vbCY * s;
+                    // The backdrop covers the FULL drawing (title block, walls,
+                    // everything ezdxf rendered). `bounds` is only the extracted
+                    // subset, so we must scale the backdrop to match the true
+                    // drawing extents from the DXF header. Without this the
+                    // backdrop gets shrunk into the narrower extracted bounds.
+                    const ext = geom?.drawing_extents ?? bounds;
+                    const extW = ext.max_x - ext.min_x;
+                    const extH = ext.max_y - ext.min_y;
+                    const sx = extW / vw;
+                    const sy = extH / vh;
+                    // Map viewBox(vx, vy) → (ext.min_x, ext.max_y) with Y-flip
+                    // (ezdxf Y-down → CAD Y-up).
+                    const tx = ext.min_x - vx * sx;
+                    const ty = ext.max_y + vy * sy;
                     return (
-                      <g transform={`matrix(${s}, 0, 0, ${-s}, ${tx}, ${ty})`}>
+                      <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
                           opacity={0.75}

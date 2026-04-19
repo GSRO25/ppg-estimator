@@ -62,6 +62,11 @@ def parse_drawing(file_path: str) -> ExtractionResult:
     # Compute drawing bounds from extracted geometry (fallback: DWG extents)
     bounds = _compute_bounds(pipes, fixtures, fittings, doc)
 
+    # True drawing extents from the DXF header ($EXTMIN/$EXTMAX). Used to align
+    # the SVG backdrop, which spans the whole drawing and must not be shrunk
+    # into the narrower extracted-geometry bounds.
+    drawing_extents = _dwg_extents(doc, bounds)
+
     annotations = read_annotations(msp)
 
     # PR3: spatial association of nearby annotations to extracted elements
@@ -101,6 +106,7 @@ def parse_drawing(file_path: str) -> ExtractionResult:
         fittings=fittings,
         annotations=annotations,
         bounds=bounds,
+        drawing_extents=drawing_extents,
         warnings=warnings,
         svg_backdrop=svg_backdrop,
         svg_backdrop_viewbox=svg_backdrop_viewbox,
@@ -183,3 +189,22 @@ def _compute_bounds(pipes, fixtures, fittings, doc) -> DrawingBounds | None:
         except Exception:
             return None
     return DrawingBounds(min_x=min(xs), min_y=min(ys), max_x=max(xs), max_y=max(ys))
+
+
+def _dwg_extents(doc, fallback: DrawingBounds | None) -> DrawingBounds | None:
+    """True drawing extents from the DXF header. Falls back to the provided
+    extracted-geometry bounds when the header lacks valid $EXTMIN/$EXTMAX."""
+    try:
+        ext_min = doc.header.get("$EXTMIN", None)
+        ext_max = doc.header.get("$EXTMAX", None)
+        if ext_min is None or ext_max is None:
+            return fallback
+        min_x, min_y = float(ext_min[0]), float(ext_min[1])
+        max_x, max_y = float(ext_max[0]), float(ext_max[1])
+        # $EXTMIN/$EXTMAX can be uninitialized (1e20 sentinels) on drawings
+        # that have never been regenerated. Detect and fall back.
+        if max_x - min_x <= 0 or max_y - min_y <= 0 or abs(min_x) > 1e19 or abs(max_x) > 1e19:
+            return fallback
+        return DrawingBounds(min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y)
+    except Exception:
+        return fallback

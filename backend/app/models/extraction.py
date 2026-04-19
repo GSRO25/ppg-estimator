@@ -60,6 +60,10 @@ class ExtractionResult(BaseModel):
     fittings: list[ExtractedFitting]
     annotations: list[ExtractedAnnotation]
     bounds: Optional[DrawingBounds] = None
+    # True extents of the entire DXF/DWG drawing (from $EXTMIN/$EXTMAX), not just
+    # the extracted subset. Needed to align the SVG backdrop, which spans the
+    # full drawing and must not be shrunk into the narrower extracted bounds.
+    drawing_extents: Optional[DrawingBounds] = None
     warnings: list[str] = []
     # Optional SVG backdrop rendered from the source DXF/DWG via ezdxf's drawing addon.
     # Embedded behind extracted elements in the viewer to give walls/text/hatches context.

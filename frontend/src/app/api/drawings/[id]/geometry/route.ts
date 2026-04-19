@@ -9,6 +9,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 
   const [drawing] = await query<{ id: number; filename: string; extraction_result: {
     bounds?: { min_x: number; min_y: number; max_x: number; max_y: number };
+    drawing_extents?: { min_x: number; min_y: number; max_x: number; max_y: number };
     fixtures?: { block_name: string; layer: string; locations: [number, number][] }[];
     pipes?: { layer: string; service_type: string; segments?: [number, number][][] }[];
     fittings?: { layer: string; fitting_type: string; positions?: [number, number][] }[];
@@ -63,5 +64,6 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     layers,
     svg_backdrop: r.svg_backdrop ?? null,
     svg_backdrop_viewbox: r.svg_backdrop_viewbox ?? null,
+    drawing_extents: r.drawing_extents ?? null,
   });
 }
