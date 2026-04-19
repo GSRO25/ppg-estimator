@@ -149,9 +149,16 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
     [id]
   );
 
-  // Load completed drawings with extraction results
+  // Load completed drawings with extraction results.
+  // Skip legend / cover / notes sheets — they describe symbols but aren't
+  // real installations, so they'd produce phantom line items.
   const drawings = await query<{ id: number; extraction_result: ExtractionResult }>(
-    "SELECT id, extraction_result FROM drawings WHERE project_id = $1 AND extraction_status = 'complete' AND extraction_result IS NOT NULL",
+    `SELECT id, extraction_result FROM drawings
+     WHERE project_id = $1
+       AND extraction_status = 'complete'
+       AND extraction_result IS NOT NULL
+       AND category NOT IN ('cover', 'notes')
+       AND filename !~* 'legend|symbol|key\\.dwg'`,
     [id]
   );
 

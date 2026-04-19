@@ -5,11 +5,14 @@ from app.models.extraction import ExtractedFixture
 # Blocks that are annotation/drafting artifacts, not plumbing fixtures.
 # These would otherwise appear as takeoff line items at $0 rates.
 _IGNORE_PATTERNS = [
+    # Revit/building markers
     re.compile(r"^ground$", re.IGNORECASE),
     re.compile(r"^level\s*\d*$", re.IGNORECASE),
+    re.compile(r"^roof$", re.IGNORECASE),
     re.compile(r"^grid", re.IGNORECASE),
     re.compile(r"^north", re.IGNORECASE),
     re.compile(r"^a\$c", re.IGNORECASE),
+    # Title block / sheet furniture
     re.compile(r"titleblock", re.IGNORECASE),
     re.compile(r"title\s*block", re.IGNORECASE),
     re.compile(r"^revision", re.IGNORECASE),
@@ -20,6 +23,29 @@ _IGNORE_PATTERNS = [
     re.compile(r"^view", re.IGNORECASE),
     re.compile(r"^scale", re.IGNORECASE),
     re.compile(r"^matchline", re.IGNORECASE),
+    re.compile(r"^dtag", re.IGNORECASE),
+    # CCAD landscape / site furniture
+    re.compile(r"ccad_symbol_tree", re.IGNORECASE),
+    re.compile(r"ccad_symbol_shrub", re.IGNORECASE),
+    re.compile(r"symbol_tree", re.IGNORECASE),
+    re.compile(r"symbol_shrub", re.IGNORECASE),
+    re.compile(r"^tree", re.IGNORECASE),
+    re.compile(r"^shrub", re.IGNORECASE),
+    re.compile(r"^plant_", re.IGNORECASE),
+    re.compile(r"^car$|^vehicle", re.IGNORECASE),
+    re.compile(r"^person$|^human", re.IGNORECASE),
+    # CAD annotation bubbles / markers
+    re.compile(r"^point_dot$", re.IGNORECASE),
+    re.compile(r"^point_cross$", re.IGNORECASE),
+    re.compile(r"^\$cir", re.IGNORECASE),
+    re.compile(r"^svs$", re.IGNORECASE),
+    re.compile(r"^telov$", re.IGNORECASE),
+    re.compile(r"^mhcir$", re.IGNORECASE),
+    # 2D furniture / architectural fitout
+    re.compile(r"^2d[_-]", re.IGNORECASE),
+    re.compile(r"^furniture", re.IGNORECASE),
+    re.compile(r"^door", re.IGNORECASE),
+    re.compile(r"^window", re.IGNORECASE),
 ]
 
 
