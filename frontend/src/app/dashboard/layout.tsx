@@ -1,6 +1,7 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import SidebarNav from './sidebar-nav';
+import SignOutButton from './sign-out-button';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -15,6 +16,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <p className="text-xs text-white/40 mt-0.5 truncate">{session.user?.email}</p>
         </div>
         <SidebarNav />
+        <div className="mt-auto pt-4 border-t border-white/10">
+          <SignOutButton />
+        </div>
       </aside>
       <main className="flex-1 p-8 overflow-y-auto">{children}</main>
     </div>
