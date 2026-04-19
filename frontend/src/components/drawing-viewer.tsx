@@ -147,12 +147,27 @@ export default function DrawingViewer({
       .catch(e => setErr(String(e)));
   }, [drawingId]);
 
-  // Initial viewBox — prefer true drawing extents (full drawing) over the
-  // narrower extracted-geometry bounds, so the user sees the whole sheet on
-  // load, with extracted fixtures/pipes overlaid.
+  // Hard limits for panning — use drawing_extents when available (full sheet),
+  // fall back to geometry bounds. Used by clampVB to stop the user from
+  // scrolling completely off the drawing.
+  const panLimits = useMemo(() => geom?.drawing_extents ?? geom?.bounds ?? null, [geom]);
+
+  // Clamp a viewBox so its centre stays within the drawing limits.
+  // This prevents panning the drawing completely off-screen.
+  const clampVB = useCallback((vb: number[]): number[] => {
+    if (!panLimits) return vb;
+    const [x, y, w, h] = vb;
+    const cx = Math.max(panLimits.min_x, Math.min(panLimits.max_x, x + w / 2));
+    const cy = Math.max(panLimits.min_y, Math.min(panLimits.max_y, y + h / 2));
+    return [cx - w / 2, cy - h / 2, w, h];
+  }, [panLimits]);
+
+  // Initial viewBox — fit to extracted geometry bounds so the drawing fills
+  // the viewport on load. (drawing_extents can be the full DXF paper space
+  // which is far larger than the actual content, leaving the drawing tiny.)
   useEffect(() => {
     if (!geom) return;
-    const b = geom.drawing_extents ?? geom.bounds;
+    const b = geom.bounds;
     if (!b) return;
     const w = b.max_x - b.min_x;
     const h = b.max_y - b.min_y;
@@ -162,9 +177,9 @@ export default function DrawingViewer({
     panState.current.vb = vb;
   }, [geom]);
 
-  // Reset to fit-all view. Same computation as the initial-load effect.
+  // Fit geometry bounds (E key).
   const zoomExtents = useCallback(() => {
-    const b = geom?.drawing_extents ?? geom?.bounds;
+    const b = geom?.bounds;
     if (!b) return;
     const w = b.max_x - b.min_x;
     const h = b.max_y - b.min_y;
@@ -276,7 +291,7 @@ export default function DrawingViewer({
     const nh = h * scale;
     const nx = cursor.x - (cursor.x - x) * scale;
     const ny = cursor.y - (cursor.y - y) * scale;
-    const next = [nx, ny, nw, nh];
+    const next = clampVB([nx, ny, nw, nh]);
     panState.current.vb = next;
     setViewBox(next.join(' '));
   }
@@ -329,7 +344,7 @@ export default function DrawingViewer({
     const [x, y, w, h] = panState.current.vb;
     const nx = x - (dx / rect.width) * w;
     const ny = y - (dy / rect.height) * h;
-    const next = [nx, ny, w, h];
+    const next = clampVB([nx, ny, w, h]);
     panState.current.vb = next;
     setViewBox(next.join(' '));
   }
