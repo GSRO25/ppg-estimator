@@ -156,7 +156,8 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
       </div>
 
       {/* Full-screen drawing with floating grid panel */}
-      <div className="relative flex-1 overflow-hidden bg-slate-900">
+      {/* Clicking the drawing area (outside the panel) closes the panel */}
+      <div className="relative flex-1 overflow-hidden bg-slate-900" onClick={() => showGrid && setShowGrid(false)}>
         {/* Drawing fills the entire area */}
         {activeDrawingId ? (
           <DrawingViewer
@@ -174,8 +175,9 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
           </div>
         )}
 
-        {/* Collapsible takeoffs panel — floats over the right side */}
+        {/* Collapsible takeoffs panel — stop propagation so clicks inside don't close it */}
         <div
+          onClick={(e) => e.stopPropagation()}
           className={`absolute top-0 right-0 bottom-0 flex flex-col bg-white shadow-2xl border-l border-slate-200 transition-transform duration-200 z-10 ${showGrid ? 'translate-x-0' : 'translate-x-full'}`}
           style={{ width: '44%' }}
         >
