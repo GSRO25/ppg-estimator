@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo, use } from 'react';
+import Link from 'next/link';
 import TakeoffGrid, { type TakeoffRow } from '@/components/takeoff-grid';
 import SectionTabs from '@/components/section-tabs';
 import TakeoffRowEditor from '@/components/takeoff-row-editor';
@@ -120,18 +121,27 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
 
   if (loading) {
     return (
-      <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900">
         <div className="text-slate-400 text-sm">Loading takeoff data…</div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      {/* Top bar: section tabs + grand total + grid toggle */}
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-900">
+      {/* Top bar: back nav + section tabs + grand total + grid toggle */}
       <div className="flex items-center justify-between px-4 py-2 border-b bg-white shrink-0">
-        <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link
+            href={`/dashboard/projects/${id}`}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 shrink-0"
+          >
+            ← Back
+          </Link>
+          <div className="w-px h-4 bg-slate-200 shrink-0" />
+          <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
           <div className="text-sm font-semibold text-slate-700">
             Grand Total: <span className="text-ppg-amber text-base font-bold">{formatCurrency(grandTotal)}</span>
           </div>
