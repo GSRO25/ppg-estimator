@@ -47,7 +47,7 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
   const [hoveredItemId, setHoveredItemId] = useState<number | null>(null);
   const [hoveredRegion, setHoveredRegion] = useState<{ type: string; key: string } | null>(null);
   const [activeDrawingId, setActiveDrawingId] = useState<number | null>(null);
-  const [showGrid, setShowGrid] = useState(true);
+  const [showGrid, setShowGrid] = useState(false);
 
   useEffect(() => {
     fetch(`/api/projects/${id}/takeoff`)
