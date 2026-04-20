@@ -34,6 +34,12 @@ _IGNORE_PATTERNS = [
     re.compile(r"^plant_", re.IGNORECASE),
     re.compile(r"^car$|^vehicle", re.IGNORECASE),
     re.compile(r"^person$|^human", re.IGNORECASE),
+    # Drawing reference callouts — block names that embed a drawing number,
+    # e.g. "180271 Tundish Type_1_dwg-5240532-Detail 1". These are detail
+    # bubbles / callout boxes, not real plumbing fixtures.
+    re.compile(r"dwg[-_]", re.IGNORECASE),          # contains "dwg-" or "dwg_"
+    re.compile(r"-detail\s*\d+$", re.IGNORECASE),   # ends with "-Detail N"
+    re.compile(r"^\d{5,}\s", re.IGNORECASE),         # starts with a 5+ digit drawing number
     # CAD annotation bubbles / markers
     re.compile(r"^point_dot$", re.IGNORECASE),
     re.compile(r"^point_cross$", re.IGNORECASE),
