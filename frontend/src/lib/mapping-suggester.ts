@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '@/lib/db';
+import { recordLlmUsage } from '@/lib/llm-usage';
 
 /**
  * mapping_suggester — given a batch of CAD block names (and their layer +
@@ -167,9 +168,16 @@ the same order:
     messages: [{ role: 'user', content: JSON.stringify(userPayload) }],
   });
 
-  // Log usage + cost for this call. Prices are captured per-row so future
-  // Anthropic pricing changes don't rewrite history.
-  await recordUsage(tenantId, 'mapping_suggester', model, msg);
+  // Log usage + cost for this call.
+  await recordLlmUsage(tenantId, {
+    purpose: 'mapping_suggester',
+    model,
+    input_tokens: msg.usage?.input_tokens ?? 0,
+    output_tokens: msg.usage?.output_tokens ?? 0,
+    cache_creation_input_tokens: msg.usage?.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens: msg.usage?.cache_read_input_tokens ?? 0,
+    request_id: msg.id ?? null,
+  });
 
   const firstBlock = msg.content[0];
   if (firstBlock.type !== 'text') throw new Error('Unexpected non-text response from Claude');
@@ -223,61 +231,6 @@ the same order:
   }
 
   return outputs;
-}
-
-// Anthropic published list prices per million tokens (USD). Stored in the
-// DB per row so shifts here don't retroactively affect historical rows.
-// Extend this map as we use more models.
-const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-7':     { input: 15, output: 75 },
-  'claude-sonnet-4-6':   { input: 3,  output: 15 },
-  'claude-haiku-4-5':    { input: 1,  output: 5 },
-};
-
-interface AnthropicResponse {
-  id?: string;
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  };
-}
-
-/**
- * Log a single Claude API call into llm_usage. Safe to call after every
- * messages.create() — any failure here is swallowed because usage tracking
- * must never break the actual feature.
- */
-async function recordUsage(tenantId: number, purpose: string, model: string, msg: AnthropicResponse): Promise<void> {
-  try {
-    const u = msg.usage ?? {};
-    const inputTokens = u.input_tokens ?? 0;
-    const outputTokens = u.output_tokens ?? 0;
-    const cacheCreate = u.cache_creation_input_tokens ?? 0;
-    const cacheRead = u.cache_read_input_tokens ?? 0;
-    const price = PRICING[model] ?? { input: 15, output: 75 };
-    // Cost: input and output at their normal rates. Cache reads are billed
-    // at 10% of input price; cache writes at 125%. Safe approximation here.
-    const cost =
-      (inputTokens * price.input / 1_000_000) +
-      (outputTokens * price.output / 1_000_000) +
-      (cacheRead * price.input * 0.1 / 1_000_000) +
-      (cacheCreate * price.input * 1.25 / 1_000_000);
-    await query(
-      `INSERT INTO llm_usage (tenant_id, purpose, model, input_tokens, output_tokens,
-                              cache_creation_input_tokens, cache_read_input_tokens,
-                              input_price_per_million, output_price_per_million,
-                              cost_usd, request_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [tenantId, purpose, model, inputTokens, outputTokens, cacheCreate, cacheRead,
-       price.input, price.output, cost, msg.id ?? null]
-    );
-  } catch (e) {
-    // Never break the caller on a usage-log failure. Log to console so it's
-    // visible in docker logs but don't throw.
-    console.error('[llm_usage] failed to record', e);
-  }
 }
 
 /**

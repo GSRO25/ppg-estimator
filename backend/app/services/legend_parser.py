@@ -75,20 +75,35 @@ def parse_legend(annotations: list[dict]) -> dict:
         return {"legend": [], "schedules": [], "notes": []}
 
     try:
+        model = "claude-opus-4-7"
         msg = client.messages.create(
-            model="claude-opus-4-7",
+            model=model,
             max_tokens=4000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": payload}],
         )
         text = msg.content[0].text.strip()
-        # Handle cases where model wraps in code fences
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
             text = text.strip()
-        return json.loads(text)
+        result = json.loads(text)
+        # Attach usage info so the caller (Next.js API route) can log it
+        # into the tenant-scoped llm_usage table. Shape matches the
+        # SDK's usage object plus the model + purpose for accounting.
+        usage = getattr(msg, "usage", None)
+        if usage is not None:
+            result["_usage"] = {
+                "purpose": "legend_parser",
+                "model": model,
+                "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+                "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+                "cache_creation_input_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+                "request_id": getattr(msg, "id", None),
+            }
+        return result
     except json.JSONDecodeError as e:
         return {"legend": [], "schedules": [], "notes": [], "error": f"JSON parse failed: {e}"}
     except Exception as e:  # noqa: BLE001 — never break extraction
