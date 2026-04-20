@@ -11,6 +11,7 @@ certs/
 ODAFileConverter*.deb
 uploads/
 exports/
+snapshots/
 .superpowers/
 dist/
 .turbo/
