@@ -1,13 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { categorizeDrawing } from '@/lib/drawing-categorizer';
+import { requireTenant } from '@/lib/require-tenant';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
+async function assertProjectInTenant(projectId: string, tenantId: number): Promise<boolean> {
+  const [row] = await query<{ id: number }>(
+    'SELECT id FROM projects WHERE id = $1 AND tenant_id = $2',
+    [projectId, tenantId]
+  );
+  return !!row;
+}
+
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const authed = await requireTenant();
+  if (!authed.ok) return authed.response;
+  const { tenantId } = authed.ctx;
   const { id } = await params;
+
+  if (!(await assertProjectInTenant(id, tenantId))) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+  }
+
   const drawings = await query(
     'SELECT * FROM drawings WHERE project_id = $1 ORDER BY uploaded_at DESC',
     [id]
@@ -16,7 +33,15 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const authed = await requireTenant();
+  if (!authed.ok) return authed.response;
+  const { tenantId } = authed.ctx;
   const { id } = await params;
+
+  if (!(await assertProjectInTenant(id, tenantId))) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+  }
+
   const formData = await request.formData();
   const files = formData.getAll('files') as File[];
 
