@@ -49,6 +49,12 @@ function fmtMoney(n: number): string {
   return `$${n.toFixed(0)}`;
 }
 
+interface LlmUsageTotals {
+  today_usd: number;
+  month_usd: number;
+  month_calls: number;
+}
+
 export default function MappingsReviewPage() {
   const [rows, setRows] = useState<MappingRow[]>([]);
   const [rateItems, setRateItems] = useState<RateCardItem[]>([]);
@@ -58,8 +64,17 @@ export default function MappingsReviewPage() {
   const [suggestingAll, setSuggestingAll] = useState(false);
   const [acceptingAllHigh, setAcceptingAllHigh] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<LlmUsageTotals | null>(null);
+
+  const loadUsage = useCallback(async () => {
+    try {
+      const r = await fetch('/api/llm-usage').then(r => r.json());
+      setUsage(r.totals);
+    } catch { /* non-fatal */ }
+  }, []);
 
   const loadRows = useCallback(async () => {
+    loadUsage();
     const r = await fetch('/api/mappings').then(r => r.json()) as MappingsResponse;
     setRows(r.rows);
     // Auto-open the preview for the most impactful unmapped row so the
@@ -68,7 +83,7 @@ export default function MappingsReviewPage() {
       .filter(x => !x.rate_card_item_id && x.drawing_id != null)
       .sort((a, b) => b.usage_count - a.usage_count)[0];
     if (first) setPreviewRow(first);
-  }, []);
+  }, [loadUsage]);
 
   useEffect(() => {
     loadRows();
@@ -205,7 +220,17 @@ export default function MappingsReviewPage() {
                 The system learns from your corrections for next time.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3">
+              {usage && (
+                <a
+                  href="/dashboard/settings/ai-usage"
+                  title={`${usage.month_calls} AI calls this month`}
+                  className="text-right text-xs leading-tight text-slate-500 hover:text-slate-700 border border-slate-200 rounded px-3 py-1.5"
+                >
+                  <div className="font-mono font-semibold text-slate-800">${usage.month_usd.toFixed(2)}</div>
+                  <div className="text-[10px] uppercase tracking-wide">AI spend · MTD</div>
+                </a>
+              )}
               {high.length > 0 && (
                 <button
                   onClick={acceptAllHighConfidence}
