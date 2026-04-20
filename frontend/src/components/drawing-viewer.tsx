@@ -176,8 +176,8 @@ export default function DrawingViewer({
 
     const inPipeArea = (x: number, y: number): boolean => {
       if (!pipeBounds) return true;
-      const mx = Math.max(pipeBounds.max_x - pipeBounds.min_x, 1) * 0.35;
-      const my = Math.max(pipeBounds.max_y - pipeBounds.min_y, 1) * 0.35;
+      const mx = Math.max(pipeBounds.max_x - pipeBounds.min_x, 1) * 0.1;
+      const my = Math.max(pipeBounds.max_y - pipeBounds.min_y, 1) * 0.1;
       return x >= pipeBounds.min_x - mx && x <= pipeBounds.max_x + mx &&
              y >= pipeBounds.min_y - my && y <= pipeBounds.max_y + my;
     };
@@ -203,6 +203,9 @@ export default function DrawingViewer({
 
   // When highlightByName is active, zoom viewport to the highlighted elements
   // so they're always visible rather than relying on the pipe-network default.
+  // Uses pipe-network size (not highlight span) as the reference scale so a
+  // single point zooms to a meaningful area and many spread-out points don't
+  // blow the viewport out to the whole sheet.
   useEffect(() => {
     if (!highlightByName || !derivedHighlight) return;
     const xs: number[] = [];
@@ -217,12 +220,29 @@ export default function DrawingViewer({
     if (!xs.length) return;
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const span = Math.max(maxX - minX, maxY - minY, 1);
-    const pad = span * 3;
-    const vb = [minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2];
+    const highlightW = maxX - minX;
+    const highlightH = maxY - minY;
+
+    // Reference scale: prefer the pipe-network size. Never zoom smaller than
+    // 25% of the pipe network, never larger than 100%.
+    const pipeW = pipeBounds ? pipeBounds.max_x - pipeBounds.min_x : highlightW || 100;
+    const pipeH = pipeBounds ? pipeBounds.max_y - pipeBounds.min_y : highlightH || 100;
+    const minW = pipeW * 0.25, minH = pipeH * 0.25;
+    const maxW = pipeW * 1.1, maxH = pipeH * 1.1;
+
+    // Start from the highlight bbox + 40% padding, then clamp to the min/max.
+    let vw = Math.max(highlightW * 1.4, minW);
+    let vh = Math.max(highlightH * 1.4, minH);
+    vw = Math.min(vw, maxW);
+    vh = Math.min(vh, maxH);
+
+    // Maintain aspect ratio roughly matching the pipe network for nicer framing.
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const vb = [cx - vw / 2, cy - vh / 2, vw, vh];
     setViewBox(vb.join(' '));
     panState.current.vb = vb;
-  }, [highlightByName, derivedHighlight]);
+  }, [highlightByName, derivedHighlight, pipeBounds]);
 
   // Pan clamping uses geometry bounds (not drawing_extents) so the user cannot
   // scroll out to title blocks or legend pages that live at a large offset.
