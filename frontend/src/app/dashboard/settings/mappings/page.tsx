@@ -34,7 +34,12 @@ export default function MappingsPage() {
   const [previewRow, setPreviewRow] = useState<MappingRow | null>(null);
 
   useEffect(() => {
-    fetch('/api/mappings').then(r => r.json()).then(setRows);
+    fetch('/api/mappings').then(r => r.json()).then((data: MappingRow[]) => {
+      setRows(data);
+      // Auto-open the first row that has a drawing_id so the preview is visible immediately
+      const first = data.find(r => r.drawing_id != null);
+      if (first) setPreviewRow(first);
+    });
     fetch('/api/rate-cards').then(r => r.json()).then(async (versions: { id: number }[]) => {
       if (!versions.length) return;
       const items = await fetch(`/api/rate-cards/${versions[0].id}`).then(r => r.json());
@@ -230,7 +235,7 @@ export default function MappingsPage() {
 
       {/* Right: drawing preview panel */}
       {previewRow && previewRow.drawing_id && (
-        <div className="w-[520px] shrink-0 flex flex-col rounded-lg shadow bg-white overflow-hidden border border-slate-200">
+        <div className="w-[520px] shrink-0 flex flex-col rounded-lg shadow bg-white overflow-hidden border border-slate-200" style={{ height: 640, position: 'sticky', top: 0 }}>
           <div className="flex items-center justify-between px-3 py-2 border-b bg-slate-50 shrink-0">
             <div>
               <span className="text-xs font-semibold text-slate-700">{previewRow.name}</span>
@@ -238,7 +243,7 @@ export default function MappingsPage() {
             </div>
             <button onClick={() => setPreviewRow(null)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button>
           </div>
-          <div className="flex-1 min-h-0" style={{ height: 480 }}>
+          <div style={{ flex: 1, minHeight: 0 }}>
             <DrawingViewer
               drawingId={previewRow.drawing_id}
               highlight={null}
