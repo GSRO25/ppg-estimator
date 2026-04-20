@@ -108,10 +108,26 @@ export async function POST(request: Request) {
   // payload well under token limits. This is where API $ is spent.
   const BATCH_SIZE = 10;
   const allResults = [];
-  for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
-    const batch = inputs.slice(i, i + BATCH_SIZE);
-    const results = await suggestMappings(tenantId, rateCardVersionId, batch);
-    allResults.push(...results);
+  try {
+    for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
+      const batch = inputs.slice(i, i + BATCH_SIZE);
+      const results = await suggestMappings(tenantId, rateCardVersionId, batch);
+      allResults.push(...results);
+    }
+  } catch (e) {
+    // Surface the specific error up to the UI — previously threw generic
+    // 500 with an HTML body, which made the client show "Unexpected end of
+    // JSON input". Most common causes: Anthropic credit/billing issue,
+    // rate limit, or malformed model response.
+    const msg = e instanceof Error ? e.message : String(e);
+    const isBilling = /credit balance|billing|payment/i.test(msg);
+    return NextResponse.json({
+      error: isBilling
+        ? 'Anthropic API credits exhausted — top up at console.anthropic.com/settings/billing, then click "Re-run suggestions".'
+        : `AI suggester failed: ${msg}`,
+      computed: allResults.length,
+      suggestions: allResults,
+    }, { status: 502 });
   }
 
   return NextResponse.json({ computed: allResults.length, suggestions: allResults });

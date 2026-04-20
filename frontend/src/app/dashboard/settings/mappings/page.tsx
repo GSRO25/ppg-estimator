@@ -80,14 +80,15 @@ export default function MappingsReviewPage() {
   }, [loadRows]);
 
   // Run the AI suggester for any unmapped blocks that don't yet have a
-  // cached suggestion. Called once on mount (if there are any); user can
-  // also trigger manually.
+  // cached suggestion. Called once on mount (if there are any and the
+  // previous attempt didn't fail); user can also trigger manually.
   const runSuggest = useCallback(async () => {
     setSuggestingAll(true);
     setError(null);
     try {
       const res = await fetch('/api/mappings/suggest', { method: 'POST' });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Suggest failed');
+      const body = await res.json().catch(() => ({ error: `${res.status} ${res.statusText}` }));
+      if (!res.ok) throw new Error(body.error ?? 'Suggest failed');
       await loadRows();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -96,17 +97,22 @@ export default function MappingsReviewPage() {
     }
   }, [loadRows]);
 
+  const [autoRanOnce, setAutoRanOnce] = useState(false);
   useEffect(() => {
-    // Kick off suggestions automatically if some are missing. Only runs
-    // once per mount; avoids the API bill if the cache is already warm.
+    // Kick off suggestions automatically once per mount if there are
+    // uncached unmapped blocks AND we haven't already tried (or failed)
+    // this session. Skipping on error avoids looping failed API calls
+    // once the user lands with a billing/key problem.
+    if (autoRanOnce || suggestingAll || error) return;
     const needsSuggest = rows.some(
       r => !r.rate_card_item_id && r.suggested_confidence === null
     );
-    if (needsSuggest && !suggestingAll) {
+    if (needsSuggest) {
+      setAutoRanOnce(true);
       runSuggest();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.length]);
+  }, [rows.length, autoRanOnce, suggestingAll, error]);
 
   // Accept one suggestion (or manual selection)
   const acceptMapping = useCallback(async (row: MappingRow, rateCardItemId: number, isReject: boolean) => {

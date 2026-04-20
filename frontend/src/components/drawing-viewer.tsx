@@ -201,11 +201,17 @@ export default function DrawingViewer({
     return null;
   }, [highlight, highlightByName, geom, pipeBounds]);
 
-  // When highlightByName is active, zoom viewport to the highlighted elements
-  // so they're always visible rather than relying on the pipe-network default.
-  // Uses pipe-network size (not highlight span) as the reference scale so a
-  // single point zooms to a meaningful area and many spread-out points don't
-  // blow the viewport out to the whole sheet.
+  // When highlightByName is active, frame the viewport on the highlighted
+  // element(s). Strategy differs by type:
+  //   * Single fixture / tight fitting cluster → zoom to a small neighbourhood
+  //     around the point(s), about 15% of pipe-network size. Avoids the
+  //     viewport being sized to an invisible 0×0 box.
+  //   * Pipe layer with many segments spanning the drawing → frame tightly
+  //     on the highlight's own bbox with 25% padding (don't clamp to
+  //     pipe-network min — the pipes ARE the network, so their own bbox
+  //     is the right reference).
+  //   * Always cap to the pipe-network bbox so we never scroll out to
+  //     title blocks or legend pages.
   useEffect(() => {
     if (!highlightByName || !derivedHighlight) return;
     const xs: number[] = [];
@@ -220,25 +226,49 @@ export default function DrawingViewer({
     if (!xs.length) return;
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const highlightW = maxX - minX;
-    const highlightH = maxY - minY;
-
-    // Reference scale: prefer the pipe-network size. Never zoom smaller than
-    // 25% of the pipe network, never larger than 100%.
-    const pipeW = pipeBounds ? pipeBounds.max_x - pipeBounds.min_x : highlightW || 100;
-    const pipeH = pipeBounds ? pipeBounds.max_y - pipeBounds.min_y : highlightH || 100;
-    const minW = pipeW * 0.25, minH = pipeH * 0.25;
-    const maxW = pipeW * 1.1, maxH = pipeH * 1.1;
-
-    // Start from the highlight bbox + 40% padding, then clamp to the min/max.
-    let vw = Math.max(highlightW * 1.4, minW);
-    let vh = Math.max(highlightH * 1.4, minH);
-    vw = Math.min(vw, maxW);
-    vh = Math.min(vh, maxH);
-
-    // Maintain aspect ratio roughly matching the pipe network for nicer framing.
+    const hW = maxX - minX;
+    const hH = maxY - minY;
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
+
+    const pipeW = pipeBounds ? pipeBounds.max_x - pipeBounds.min_x : 0;
+    const pipeH = pipeBounds ? pipeBounds.max_y - pipeBounds.min_y : 0;
+
+    let vw: number, vh: number;
+
+    if (derivedHighlight.type === 'fixture' || derivedHighlight.type === 'fitting') {
+      // Point-like: show a neighbourhood. Use ~15% of pipe network as the
+      // floor so a single point is visible at a useful zoom. Grow only if
+      // the points are spread wider.
+      const floor = Math.max(pipeW, pipeH) * 0.15;
+      vw = Math.max(hW * 1.5, floor);
+      vh = Math.max(hH * 1.5, floor);
+    } else {
+      // Pipe layer: frame tight to the highlight bbox with modest padding.
+      vw = Math.max(hW * 1.25, pipeW * 0.05);
+      vh = Math.max(hH * 1.25, pipeH * 0.05);
+    }
+
+    // Cap viewport to the pipe network so we never overshoot into title
+    // blocks or legends.
+    if (pipeW > 0 && pipeH > 0) {
+      vw = Math.min(vw, pipeW * 1.05);
+      vh = Math.min(vh, pipeH * 1.05);
+    }
+
+    // Preserve the viewer's rendered aspect ratio so circles don't end up
+    // oval. Without this, a long thin pipe run stretches in one dimension.
+    const svg = svgRef.current;
+    if (svg) {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const targetAR = rect.width / rect.height;
+        const currentAR = vw / vh;
+        if (currentAR > targetAR) vh = vw / targetAR;
+        else vw = vh * targetAR;
+      }
+    }
+
     const vb = [cx - vw / 2, cy - vh / 2, vw, vh];
     setViewBox(vb.join(' '));
     panState.current.vb = vb;
