@@ -42,16 +42,21 @@ export async function POST(request: Request) {
   }
   const rateCardVersionId = activeRcv.id;
 
-  // Build the set of (block_name, layer, legend_matches) that need a
-  // suggestion = all unmapped blocks in this tenant's drawings, minus the
+  // Build the set of (name, layer, legend_matches) that need a suggestion =
+  // all unmapped blocks/pipe-layers in this tenant's drawings, minus the
   // ones already cached for this rate_card_version.
   //
-  // We take one representative occurrence per block name (the most recent
-  // drawing) so the legend_matches context is meaningful.
+  // Fixtures AND pipe layers are treated symmetrically — they're both CAD
+  // identifiers that need to resolve to a rate-card line. The earlier
+  // version only queried fixtures, which left pipes orphaned.
+  //
+  // We take one representative occurrence per name (most recent drawing)
+  // so the legend_matches context is meaningful.
   const uncomputed = await query<{ name: string; layer: string | null; legend_data: unknown }>(
     `WITH tenant_blocks AS (
        SELECT DISTINCT ON (name) name, layer, legend_data
        FROM (
+         -- Fixtures (INSERT blocks)
          SELECT fx->>'block_name' AS name,
                 fx->>'layer' AS layer,
                 d.extraction_result->'legend_data' AS legend_data,
@@ -62,6 +67,17 @@ export async function POST(request: Request) {
          WHERE p.tenant_id = $1
            AND d.extraction_result IS NOT NULL
            AND jsonb_array_length(COALESCE(d.extraction_result->'pipes', '[]'::jsonb)) > 0
+         UNION ALL
+         -- Pipe layers (polyline layer names)
+         SELECT pp->>'layer' AS name,
+                pp->>'layer' AS layer,
+                d.extraction_result->'legend_data' AS legend_data,
+                d.id AS drawing_id
+         FROM drawings d
+         JOIN projects p ON p.id = d.project_id,
+              LATERAL jsonb_array_elements(d.extraction_result->'pipes') AS pp
+         WHERE p.tenant_id = $1
+           AND d.extraction_result IS NOT NULL
        ) sub
        WHERE name IS NOT NULL
          AND name !~* 'dwg[-_]'
