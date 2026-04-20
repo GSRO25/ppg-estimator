@@ -168,12 +168,25 @@ export default function DrawingViewer({
   }, [geom]);
 
   // Derive a Highlight from geom when highlightByName is set (used by mappings preview).
+  // Fixture locations are filtered to the pipe-network area so legend-page symbol
+  // inserts (which sit at a large offset) don't produce off-screen red dots.
   const derivedHighlight = useMemo((): Highlight | null => {
     if (highlight) return highlight;
     if (!highlightByName || !geom) return null;
+
+    const inPipeArea = (x: number, y: number): boolean => {
+      if (!pipeBounds) return true;
+      const mx = Math.max(pipeBounds.max_x - pipeBounds.min_x, 1) * 0.35;
+      const my = Math.max(pipeBounds.max_y - pipeBounds.min_y, 1) * 0.35;
+      return x >= pipeBounds.min_x - mx && x <= pipeBounds.max_x + mx &&
+             y >= pipeBounds.min_y - my && y <= pipeBounds.max_y + my;
+    };
+
     if (highlightByName.type === 'fixture') {
       const f = geom.fixtures.find(fx => fx.block_name === highlightByName.name);
-      return f ? { type: 'fixture', block_name: f.block_name, locations: f.locations } : null;
+      if (!f) return null;
+      const locs = f.locations.filter(([x, y]) => inPipeArea(x, y));
+      return locs.length ? { type: 'fixture', block_name: f.block_name, locations: locs } : null;
     }
     if (highlightByName.type === 'pipe') {
       const p = geom.pipes.find(px => px.layer === highlightByName.name);
@@ -181,10 +194,35 @@ export default function DrawingViewer({
     }
     if (highlightByName.type === 'fitting') {
       const ft = geom.fittings.find(f => f.layer === highlightByName.name);
-      return ft ? { type: 'fitting', layer: ft.layer, positions: ft.positions } : null;
+      if (!ft) return null;
+      const pos = ft.positions.filter(([x, y]) => inPipeArea(x, y));
+      return pos.length ? { type: 'fitting', layer: ft.layer, positions: pos } : null;
     }
     return null;
-  }, [highlight, highlightByName, geom]);
+  }, [highlight, highlightByName, geom, pipeBounds]);
+
+  // When highlightByName is active, zoom viewport to the highlighted elements
+  // so they're always visible rather than relying on the pipe-network default.
+  useEffect(() => {
+    if (!highlightByName || !derivedHighlight) return;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    if (derivedHighlight.type === 'fixture') {
+      for (const [x, y] of derivedHighlight.locations) { xs.push(x); ys.push(y); }
+    } else if (derivedHighlight.type === 'pipe') {
+      for (const s of derivedHighlight.segments) { xs.push(s[0][0], s[1][0]); ys.push(s[0][1], s[1][1]); }
+    } else {
+      for (const [x, y] of derivedHighlight.positions) { xs.push(x); ys.push(y); }
+    }
+    if (!xs.length) return;
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const span = Math.max(maxX - minX, maxY - minY, 1);
+    const pad = span * 3;
+    const vb = [minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2];
+    setViewBox(vb.join(' '));
+    panState.current.vb = vb;
+  }, [highlightByName, derivedHighlight]);
 
   // Pan clamping uses geometry bounds (not drawing_extents) so the user cannot
   // scroll out to title blocks or legend pages that live at a large offset.
