@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FolderOpen, CreditCard, Link2, Settings } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, CheckSquare, CreditCard, Settings } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/projects', label: 'Projects', icon: FolderOpen },
+  { href: '/dashboard/settings/mappings', label: 'Review Queue', icon: CheckSquare },
   { href: '/dashboard/rate-cards', label: 'Rate Cards', icon: CreditCard },
-  { href: '/dashboard/settings/mappings', label: 'Rate Mappings', icon: Link2 },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

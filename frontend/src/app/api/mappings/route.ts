@@ -78,6 +78,25 @@ export async function GET() {
   );
   const mappingMap = Object.fromEntries(mappings.map(m => [m.cad_block_name, m]));
 
+  // Usage counts: how many takeoff rows reference each block. Surfaces
+  // priority — a block used 40 times is much more impactful to review
+  // than one used once.
+  const usage = await query<{ name: string; usage_count: number; est_value: number }>(
+    `SELECT
+       COALESCE(ti.drawing_region->>'block_name', ti.drawing_region->>'layer') AS name,
+       COUNT(*)::int AS usage_count,
+       COALESCE(SUM(
+         ti.extracted_qty * (COALESCE(rci.labour_rate,0) + COALESCE(rci.material_rate,0) + COALESCE(rci.plant_rate,0))
+       ), 0)::float AS est_value
+     FROM takeoff_items ti
+     JOIN projects p ON p.id = ti.project_id
+     LEFT JOIN rate_card_items rci ON rci.id = ti.rate_card_item_id
+     WHERE p.tenant_id = $1
+     GROUP BY COALESCE(ti.drawing_region->>'block_name', ti.drawing_region->>'layer')`,
+    [tenantId]
+  );
+  const usageMap = Object.fromEntries(usage.filter(u => u.name).map(u => [u.name, u]));
+
   // Cached AI suggestions — keyed by (tenant, block_name, rate_card_version).
   // Returns empty if no rate card is attached yet.
   const suggestions = rateCardVersionId
@@ -105,6 +124,7 @@ export async function GET() {
   const result = allNames.map(({ name, type, drawing_id, drawing_filename, project_name }) => {
     const confirmed = mappingMap[name];
     const suggested = suggestionMap[name];
+    const u = usageMap[name];
     return {
       name,
       type,
@@ -115,6 +135,9 @@ export async function GET() {
       rate_card_description: confirmed
         ? `${confirmed.section_name} — ${confirmed.description}`
         : null,
+      // Usage (signal for review priority)
+      usage_count: u?.usage_count ?? 0,
+      est_value: u?.est_value ?? 0,
       // AI suggestion (only meaningful when rate_card_item_id is null)
       suggested_rate_card_item_id: suggested?.suggested_rate_card_item_id ?? null,
       suggested_description: suggested?.description

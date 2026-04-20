@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import DrawingViewer from '@/components/drawing-viewer';
 
 interface MappingRow {
@@ -11,6 +11,15 @@ interface MappingRow {
   project_name: string | null;
   rate_card_item_id: number | null;
   rate_card_description: string | null;
+  usage_count: number;
+  est_value: number;
+  suggested_rate_card_item_id: number | null;
+  suggested_description: string | null;
+  suggested_confidence: 'high' | 'medium' | 'low' | null;
+  suggested_reasoning: string | null;
+  suggested_labour_rate: number | null;
+  suggested_material_rate: number | null;
+  suggested_uom: string | null;
 }
 
 interface RateCardItem {
@@ -22,218 +31,260 @@ interface RateCardItem {
   material_rate: number;
 }
 
-export default function MappingsPage() {
+interface MappingsResponse {
+  rate_card_version_id: number | null;
+  rows: MappingRow[];
+}
+
+function confidenceColor(c: 'high' | 'medium' | 'low' | null): string {
+  if (c === 'high') return 'bg-emerald-100 text-emerald-800 ring-emerald-300';
+  if (c === 'medium') return 'bg-amber-100 text-amber-800 ring-amber-300';
+  if (c === 'low') return 'bg-slate-100 text-slate-700 ring-slate-300';
+  return 'bg-slate-50 text-slate-500 ring-slate-200';
+}
+
+function fmtMoney(n: number): string {
+  if (!n) return '—';
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
+  return `$${n.toFixed(0)}`;
+}
+
+export default function MappingsReviewPage() {
   const [rows, setRows] = useState<MappingRow[]>([]);
   const [rateItems, setRateItems] = useState<RateCardItem[]>([]);
-  const [filter, setFilter] = useState<'all' | 'block' | 'layer' | 'unmapped'>('unmapped');
-  const [search, setSearch] = useState('');
-  const [saving, setSaving] = useState<string | null>(null);
-  const [rateSearch, setRateSearch] = useState<Record<string, string>>({});
-  const [backfillStatus, setBackfillStatus] = useState<{ updated: number } | null>(null);
-  const [backfilling, setBackfilling] = useState(false);
   const [previewRow, setPreviewRow] = useState<MappingRow | null>(null);
+  const [rateSearch, setRateSearch] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [suggestingAll, setSuggestingAll] = useState(false);
+  const [acceptingAllHigh, setAcceptingAllHigh] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadRows = useCallback(async () => {
+    const r = await fetch('/api/mappings').then(r => r.json()) as MappingsResponse;
+    setRows(r.rows);
+    // Auto-open the preview for the most impactful unmapped row so the
+    // estimator sees context immediately on landing.
+    const first = r.rows
+      .filter(x => !x.rate_card_item_id && x.drawing_id != null)
+      .sort((a, b) => b.usage_count - a.usage_count)[0];
+    if (first) setPreviewRow(first);
+  }, []);
 
   useEffect(() => {
-    fetch('/api/mappings').then(r => r.json()).then((data: MappingRow[]) => {
-      setRows(data);
-      // Auto-open the first row that has a drawing_id so the preview is visible immediately
-      const first = data.find(r => r.drawing_id != null);
-      if (first) setPreviewRow(first);
-    });
+    loadRows();
     fetch('/api/rate-cards').then(r => r.json()).then(async (versions: { id: number }[]) => {
       if (!versions.length) return;
       const items = await fetch(`/api/rate-cards/${versions[0].id}`).then(r => r.json());
       setRateItems(items);
     });
-  }, []);
+  }, [loadRows]);
 
-  const filteredRows = useMemo(() =>
-    rows.filter(r =>
-      (filter === 'all' || (filter === 'unmapped' ? !r.rate_card_item_id : r.type === filter)) &&
-      (!search || r.name.toLowerCase().includes(search.toLowerCase()))
-    ), [rows, filter, search]);
+  // Run the AI suggester for any unmapped blocks that don't yet have a
+  // cached suggestion. Called once on mount (if there are any); user can
+  // also trigger manually.
+  const runSuggest = useCallback(async () => {
+    setSuggestingAll(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/mappings/suggest', { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Suggest failed');
+      await loadRows();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggestingAll(false);
+    }
+  }, [loadRows]);
 
-  async function runBackfill() {
-    setBackfilling(true);
-    const res = await fetch('/api/mappings/backfill', { method: 'POST' });
-    const data = await res.json();
-    setBackfillStatus(data);
-    setBackfilling(false);
-  }
+  useEffect(() => {
+    // Kick off suggestions automatically if some are missing. Only runs
+    // once per mount; avoids the API bill if the cache is already warm.
+    const needsSuggest = rows.some(
+      r => !r.rate_card_item_id && r.suggested_confidence === null
+    );
+    if (needsSuggest && !suggestingAll) {
+      runSuggest();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows.length]);
 
-  async function saveMapping(name: string, rateCardItemId: number) {
-    setSaving(name);
-    await fetch('/api/mappings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, rateCardItemId }),
-    });
-    await fetch('/api/mappings/backfill', { method: 'POST' });
+  // Accept one suggestion (or manual selection)
+  const acceptMapping = useCallback(async (row: MappingRow, rateCardItemId: number, isReject: boolean) => {
+    setSaving(row.name);
+    try {
+      await fetch('/api/mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: row.name,
+          rateCardItemId,
+          // Feedback-loop payload — only when the user overrode the AI
+          rejectedRateCardItemId: isReject ? row.suggested_rate_card_item_id : null,
+          rejectedReasoning: isReject ? row.suggested_reasoning : null,
+        }),
+      });
+      // Apply the backfill so existing takeoff_items using this block pick up the rate
+      await fetch('/api/mappings/backfill', { method: 'POST' });
+      await loadRows();
+    } finally {
+      setSaving(null);
+    }
+  }, [loadRows]);
 
-    setRows(prev => prev.map(r => {
-      if (r.name !== name) return r;
-      const item = rateItems.find(i => i.id === rateCardItemId);
-      return { ...r, rate_card_item_id: rateCardItemId, rate_card_description: item ? `${item.section_name} — ${item.description}` : null };
-    }));
-    setRateSearch(prev => { const n = { ...prev }; delete n[name]; return n; });
-    setSaving(null);
-  }
-
-  async function clearMapping(name: string) {
+  const clearMapping = useCallback(async (name: string) => {
     await fetch('/api/mappings', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
-    setRows(prev => prev.map(r => r.name === name ? { ...r, rate_card_item_id: null, rate_card_description: null } : r));
-  }
+    await loadRows();
+  }, [loadRows]);
 
-  const mappedCount = rows.filter(r => r.rate_card_item_id).length;
-  const unmappedCount = rows.length - mappedCount;
+  const acceptAllHighConfidence = useCallback(async () => {
+    const targets = rows.filter(
+      r => !r.rate_card_item_id && r.suggested_confidence === 'high' && r.suggested_rate_card_item_id
+    );
+    if (targets.length === 0) return;
+    setAcceptingAllHigh(true);
+    try {
+      for (const r of targets) {
+        await fetch('/api/mappings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: r.name, rateCardItemId: r.suggested_rate_card_item_id }),
+        });
+      }
+      await fetch('/api/mappings/backfill', { method: 'POST' });
+      await loadRows();
+    } finally {
+      setAcceptingAllHigh(false);
+    }
+  }, [rows, loadRows]);
+
+  // Tier grouping
+  const { mapped, high, medium, low, unsuggested } = useMemo(() => {
+    const mapped: MappingRow[] = [];
+    const high: MappingRow[] = [];
+    const medium: MappingRow[] = [];
+    const low: MappingRow[] = [];
+    const unsuggested: MappingRow[] = [];
+    for (const r of rows) {
+      if (r.rate_card_item_id) { mapped.push(r); continue; }
+      if (r.suggested_confidence === 'high') { high.push(r); continue; }
+      if (r.suggested_confidence === 'medium') { medium.push(r); continue; }
+      if (r.suggested_confidence === 'low') { low.push(r); continue; }
+      unsuggested.push(r);
+    }
+    // Sort by usage_count within each tier — most impactful first
+    const byUsage = (a: MappingRow, b: MappingRow) => b.usage_count - a.usage_count;
+    high.sort(byUsage); medium.sort(byUsage); low.sort(byUsage); unsuggested.sort(byUsage);
+    return { mapped, high, medium, low, unsuggested };
+  }, [rows]);
+
+  const totalUnmapped = high.length + medium.length + low.length + unsuggested.length;
+  const reviewedPct = rows.length === 0 ? 0 : Math.round((mapped.length / rows.length) * 100);
 
   return (
     <div className="flex gap-4 h-full">
-      {/* Left: table */}
-      <div className="flex-1 min-w-0">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Rate Mappings</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              <span className="text-green-600 font-medium">{mappedCount} mapped</span>
-              {' · '}
-              <span className={unmappedCount > 0 ? 'text-amber-600 font-medium' : 'text-gray-400'}>{unmappedCount} unmapped</span>
-              {' · '}{rows.length} total
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            {backfillStatus && (
-              <span className="text-xs text-green-600 font-medium">
-                Applied to {backfillStatus.updated} existing takeoff item{backfillStatus.updated !== 1 ? 's' : ''}
-              </span>
-            )}
-            <button
-              onClick={runBackfill}
-              disabled={backfilling}
-              className="px-4 py-2 bg-ppg-navy text-white text-sm rounded font-medium hover:bg-ppg-navy/90 disabled:opacity-50"
-            >
-              {backfilling ? 'Applying…' : 'Apply to all takeoffs'}
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-4 border-b flex gap-3 items-center">
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search block / layer names…"
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm w-64"
-            />
-            <div className="flex gap-1">
-              {([
-                ['unmapped', `Unmapped (${unmappedCount})`],
-                ['all', 'All'],
-                ['block', 'Fixture Blocks'],
-                ['layer', 'Pipe Layers'],
-              ] as const).map(([f, label]) => (
+      {/* Left: review queue */}
+      <div className="flex-1 min-w-0 space-y-4">
+        {/* Header / progress / bulk actions */}
+        <div className="bg-white rounded-lg shadow p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Review Queue</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                AI suggests the best rate-card match for every unmapped CAD block — you confirm or override.
+                The system learns from your corrections for next time.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {high.length > 0 && (
                 <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 rounded text-xs font-medium ${filter === f ? 'bg-ppg-blue text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  onClick={acceptAllHighConfidence}
+                  disabled={acceptingAllHigh}
+                  className="px-4 py-2 bg-emerald-600 text-white text-sm rounded font-semibold hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {label}
+                  {acceptingAllHigh ? 'Accepting…' : `Accept all ${high.length} high-confidence`}
                 </button>
-              ))}
+              )}
+              <button
+                onClick={runSuggest}
+                disabled={suggestingAll}
+                className="px-4 py-2 bg-slate-100 text-slate-700 text-sm rounded font-medium hover:bg-slate-200 disabled:opacity-50"
+              >
+                {suggestingAll ? 'Asking AI…' : 'Re-run suggestions'}
+              </button>
             </div>
           </div>
 
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">CAD Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rate Card Item</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredRows.map(row => {
-                const query = rateSearch[row.name] ?? '';
-                const filteredItems = rateItems.filter(i =>
-                  !query || i.description.toLowerCase().includes(query.toLowerCase()) || i.section_name.toLowerCase().includes(query.toLowerCase())
-                ).slice(0, 50);
-                const isSelected = previewRow?.name === row.name;
+          <div className="mt-4 flex items-center gap-6 text-sm">
+            <div>
+              <div className="text-2xl font-bold text-slate-800">{reviewedPct}%</div>
+              <div className="text-xs text-slate-500">confirmed</div>
+            </div>
+            <div className="flex-1 h-2 bg-slate-100 rounded overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded" style={{ width: `${reviewedPct}%` }} />
+            </div>
+            <div className="flex gap-4 text-xs">
+              <span className="text-emerald-700 font-medium">{mapped.length} mapped</span>
+              <span className="text-amber-700 font-medium">{totalUnmapped} to review</span>
+              <span className="text-slate-500">{rows.length} total</span>
+            </div>
+          </div>
 
-                return (
-                  <tr
-                    key={row.name}
-                    className={`cursor-pointer ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : row.rate_card_item_id ? 'hover:bg-gray-50' : 'bg-amber-50 hover:bg-amber-100'}`}
-                    onClick={() => setPreviewRow(isSelected ? null : row)}
-                  >
-                    <td className="px-4 py-2">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${row.type === 'block' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                        {row.type === 'block' ? 'fixture' : 'pipe'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="text-sm font-mono text-gray-800">{row.name}</div>
-                      {row.project_name && (
-                        <div className="text-xs text-gray-400 mt-0.5">{row.project_name} · {row.drawing_filename}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
-                      {row.rate_card_item_id ? (
-                        <span className="text-sm text-gray-700">{row.rate_card_description}</span>
-                      ) : (
-                        <div className="flex gap-2 items-center">
-                          <input
-                            value={query}
-                            onChange={e => setRateSearch(prev => ({ ...prev, [row.name]: e.target.value }))}
-                            placeholder="Search rate card…"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs w-52"
-                          />
-                          {query && (
-                            <select
-                              size={1}
-                              onChange={e => { if (e.target.value) saveMapping(row.name, Number(e.target.value)); }}
-                              className="rounded border border-gray-300 px-2 py-1 text-xs w-72"
-                              defaultValue=""
-                            >
-                              <option value="">— select —</option>
-                              {filteredItems.map(i => (
-                                <option key={i.id} value={i.id}>
-                                  {i.section_name} — {i.description} ({i.uom})
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
-                      {saving === row.name && <span className="text-xs text-gray-400">Saving…</span>}
-                      {row.rate_card_item_id && saving !== row.name && (
-                        <button onClick={() => clearMapping(row.name)} className="text-xs text-red-400 hover:text-red-600">Clear</button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredRows.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-gray-400">
-                    {filter === 'unmapped' && unmappedCount === 0
-                      ? 'All symbols are mapped — great work!'
-                      : 'No items found. Run extraction on a project first.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
         </div>
+
+        {/* Tiered sections */}
+        <Tier title="High confidence" subtitle="AI is confident these are correct — one-click approve" color="emerald" rows={high}
+          rateItems={rateItems}
+          previewRow={previewRow} onSelect={setPreviewRow}
+          onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
+          onReject={(r, id) => acceptMapping(r, id, true)}
+          rateSearch={rateSearch} setRateSearch={setRateSearch}
+          saving={saving} onClear={clearMapping}
+        />
+        <Tier title="Medium confidence" subtitle="Likely correct but worth a skim" color="amber" rows={medium}
+          rateItems={rateItems}
+          previewRow={previewRow} onSelect={setPreviewRow}
+          onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
+          onReject={(r, id) => acceptMapping(r, id, true)}
+          rateSearch={rateSearch} setRateSearch={setRateSearch}
+          saving={saving} onClear={clearMapping}
+        />
+        <Tier title="Low confidence" subtitle="AI is guessing — open the drawing to verify each one" color="slate" rows={low}
+          rateItems={rateItems}
+          previewRow={previewRow} onSelect={setPreviewRow}
+          onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
+          onReject={(r, id) => acceptMapping(r, id, true)}
+          rateSearch={rateSearch} setRateSearch={setRateSearch}
+          saving={saving} onClear={clearMapping}
+        />
+        {unsuggested.length > 0 && (
+          <Tier title="No suggestion" subtitle="AI had no match for these — manual mapping only" color="slate" rows={unsuggested}
+            rateItems={rateItems}
+            previewRow={previewRow} onSelect={setPreviewRow}
+            onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
+            onReject={(r, id) => acceptMapping(r, id, true)}
+            rateSearch={rateSearch} setRateSearch={setRateSearch}
+            saving={saving} onClear={clearMapping}
+          />
+        )}
+
+        {mapped.length > 0 && (
+          <Tier title="Confirmed mappings" subtitle="Already mapped — these auto-apply to every drawing" color="emerald" rows={mapped}
+            rateItems={rateItems}
+            previewRow={previewRow} onSelect={setPreviewRow}
+            onAccept={() => {}} onReject={() => {}}
+            rateSearch={rateSearch} setRateSearch={setRateSearch}
+            saving={saving} onClear={clearMapping}
+            confirmed
+          />
+        )}
       </div>
 
-      {/* Right: drawing preview panel */}
+      {/* Right: sticky drawing preview */}
       {previewRow && previewRow.drawing_id && (
         <div className="w-[520px] shrink-0 flex flex-col rounded-lg shadow bg-white overflow-hidden border border-slate-200" style={{ height: 640, position: 'sticky', top: 0 }}>
           <div className="flex items-center justify-between px-3 py-2 border-b bg-slate-50 shrink-0">
@@ -253,6 +304,180 @@ export default function MappingsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tier section
+// ---------------------------------------------------------------------------
+
+interface TierProps {
+  title: string;
+  subtitle: string;
+  color: 'emerald' | 'amber' | 'slate';
+  rows: MappingRow[];
+  rateItems: RateCardItem[];
+  previewRow: MappingRow | null;
+  onSelect: (r: MappingRow) => void;
+  onAccept: (r: MappingRow) => void;
+  onReject: (r: MappingRow, chosenRateCardItemId: number) => void;
+  rateSearch: Record<string, string>;
+  setRateSearch: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+  saving: string | null;
+  onClear: (name: string) => void;
+  confirmed?: boolean;
+}
+
+function Tier({ title, subtitle, color, rows, rateItems, previewRow, onSelect, onAccept, onReject, rateSearch, setRateSearch, saving, onClear, confirmed }: TierProps) {
+  if (rows.length === 0) return null;
+  const headerColor = color === 'emerald' ? 'border-emerald-400 bg-emerald-50' : color === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-slate-300 bg-slate-50';
+
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className={`px-5 py-3 border-l-4 ${headerColor}`}>
+        <div className="flex items-baseline justify-between">
+          <div>
+            <span className="text-sm font-bold text-slate-800">{title}</span>
+            <span className="ml-2 text-xs text-slate-500">{subtitle}</span>
+          </div>
+          <span className="text-xs text-slate-500">{rows.length} item{rows.length === 1 ? '' : 's'}</span>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {rows.map(row => (
+          <Row key={row.name} row={row} rateItems={rateItems}
+            isSelected={previewRow?.name === row.name}
+            onSelect={onSelect}
+            onAccept={onAccept}
+            onReject={onReject}
+            rateSearch={rateSearch}
+            setRateSearch={setRateSearch}
+            saving={saving === row.name}
+            onClear={onClear}
+            confirmed={!!confirmed}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row
+// ---------------------------------------------------------------------------
+
+interface RowProps {
+  row: MappingRow;
+  rateItems: RateCardItem[];
+  isSelected: boolean;
+  onSelect: (r: MappingRow) => void;
+  onAccept: (r: MappingRow) => void;
+  onReject: (r: MappingRow, chosenRateCardItemId: number) => void;
+  rateSearch: Record<string, string>;
+  setRateSearch: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+  saving: boolean;
+  onClear: (name: string) => void;
+  confirmed: boolean;
+}
+
+function Row({ row, rateItems, isSelected, onSelect, onAccept, onReject, rateSearch, setRateSearch, saving, onClear, confirmed }: RowProps) {
+  const q = rateSearch[row.name] ?? '';
+  const rateCandidates = rateItems.filter(
+    i => !q || i.description.toLowerCase().includes(q.toLowerCase()) || i.section_name.toLowerCase().includes(q.toLowerCase())
+  ).slice(0, 50);
+
+  return (
+    <div
+      onClick={() => onSelect(row)}
+      className={`px-5 py-3 flex items-center gap-4 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : 'hover:bg-slate-50'}`}
+    >
+      {/* Type pill + CAD name */}
+      <div className="w-56 shrink-0">
+        <div className="flex items-center gap-2">
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.type === 'block' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+            {row.type === 'block' ? 'FIXTURE' : 'PIPE'}
+          </span>
+          <span className="text-sm font-mono text-slate-800 truncate">{row.name}</span>
+        </div>
+        {row.usage_count > 0 && (
+          <div className="text-xs text-slate-500 mt-0.5">
+            used {row.usage_count}× {row.est_value > 0 && <span className="text-slate-400">· ~{fmtMoney(row.est_value)} impact</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Suggestion or confirmed mapping */}
+      <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+        {confirmed && row.rate_card_description ? (
+          <div className="flex items-center gap-3">
+            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">✓ Confirmed</span>
+            <span className="text-sm text-slate-700 truncate">{row.rate_card_description}</span>
+          </div>
+        ) : row.suggested_rate_card_item_id && row.suggested_confidence ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-0.5 rounded text-xs font-semibold ring-1 ${confidenceColor(row.suggested_confidence)}`}>
+                {row.suggested_confidence.toUpperCase()}
+              </span>
+              <span className="text-sm text-slate-800 truncate" title={row.suggested_reasoning ?? ''}>
+                {row.suggested_description}
+              </span>
+            </div>
+            {row.suggested_reasoning && (
+              <div className="text-xs text-slate-500 italic truncate" title={row.suggested_reasoning}>
+                {row.suggested_reasoning}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-slate-400 italic">No AI suggestion — map manually</span>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="shrink-0 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+        {confirmed ? (
+          <button onClick={() => onClear(row.name)} className="text-xs text-red-500 hover:text-red-700">Clear</button>
+        ) : (
+          <>
+            {row.suggested_rate_card_item_id && (
+              <button
+                onClick={() => onAccept(row)}
+                disabled={saving}
+                className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {saving ? '…' : 'Accept'}
+              </button>
+            )}
+            <div className="relative">
+              <input
+                value={q}
+                onChange={e => setRateSearch(prev => ({ ...prev, [row.name]: e.target.value }))}
+                placeholder={row.suggested_rate_card_item_id ? 'or override…' : 'search rate card…'}
+                className="rounded border border-slate-300 px-2 py-1 text-xs w-40"
+              />
+              {q && (
+                <div className="absolute right-0 top-full mt-1 z-20 w-72 max-h-64 overflow-y-auto bg-white border border-slate-200 rounded shadow-lg">
+                  {rateCandidates.map(i => (
+                    <button
+                      key={i.id}
+                      onClick={() => onReject(row, i.id)}
+                      className="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-100 border-b border-slate-50"
+                    >
+                      <div className="font-medium">{i.description}</div>
+                      <div className="text-slate-500">{i.section_name} · {i.uom}</div>
+                    </button>
+                  ))}
+                  {rateCandidates.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-slate-400">No matches</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
