@@ -607,7 +607,7 @@ export default function DrawingViewer({
                         <g
                           className="backdrop"
                           opacity={0.9}
-                          style={{ pointerEvents: 'none', filter: 'grayscale(1) invert(1) contrast(1.2)' }}
+                          style={{ pointerEvents: 'none', filter: 'grayscale(1) contrast(1.8) brightness(1.05)' }}
                           dangerouslySetInnerHTML={{ __html: backdropInner }}
                         />
                       </g>
@@ -622,7 +622,7 @@ export default function DrawingViewer({
                     <g
                       className="backdrop"
                       opacity={0.92}
-                      style={{ pointerEvents: 'none', filter: 'grayscale(1) invert(1) contrast(1.2)' }}
+                      style={{ pointerEvents: 'none', filter: 'grayscale(1) contrast(1.8) brightness(1.05)' }}
                       dangerouslySetInnerHTML={{ __html: backdropInner }}
                     />
                   </g>
