@@ -606,8 +606,7 @@ export default function DrawingViewer({
                       <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
-                          opacity={0.9}
-                          style={{ pointerEvents: 'none', filter: 'grayscale(1) contrast(1.8) brightness(1.05)' }}
+                          style={{ pointerEvents: 'none', mixBlendMode: 'multiply', filter: 'grayscale(1) contrast(2.5) brightness(0.75)' } as React.CSSProperties}
                           dangerouslySetInnerHTML={{ __html: backdropInner }}
                         />
                       </g>
@@ -621,8 +620,7 @@ export default function DrawingViewer({
                   <g transform={`scale(1, -1) translate(0, ${-(bounds.min_y + bounds.max_y)})`}>
                     <g
                       className="backdrop"
-                      opacity={0.92}
-                      style={{ pointerEvents: 'none', filter: 'grayscale(1) contrast(1.8) brightness(1.05)' }}
+                      style={{ pointerEvents: 'none', mixBlendMode: 'multiply', filter: 'grayscale(1) contrast(2.5) brightness(0.75)' } as React.CSSProperties}
                       dangerouslySetInnerHTML={{ __html: backdropInner }}
                     />
                   </g>
@@ -650,8 +648,8 @@ export default function DrawingViewer({
                       key={`p-${p.layer}-${i}`}
                       x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
                       stroke={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
-                      strokeWidth={isSelected ? strokeBase * 3 : (isHovered ? strokeBase * 2 : strokeBase * 1.5)}
-                      opacity={isSelected || isHovered ? 1 : 0.65}
+                      strokeWidth={isSelected ? strokeBase * 6 : (isHovered ? strokeBase * 5 : strokeBase * 3)}
+                      opacity={1}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
                       onMouseLeave={() => onHoverRegion?.(null)}
@@ -677,11 +675,11 @@ export default function DrawingViewer({
                   return (
                     <circle
                       key={`fx-${f.block_name}-${i}`}
-                      cx={loc[0]} cy={loc[1]} r={isSelected ? pointRadius * 1.4 : pointRadius}
+                      cx={loc[0]} cy={loc[1]} r={isSelected ? pointRadius * 1.8 : pointRadius * 1.3}
                       fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
-                      stroke={isSelected ? '#F59E0B' : baseColor}
-                      strokeWidth={isSelected ? strokeBase * 3 : strokeBase}
-                      opacity={isSelected || isHovered ? 1 : 0.65}
+                      stroke="white"
+                      strokeWidth={strokeBase * 1.5}
+                      opacity={1}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fixture', key: f.block_name })}
                       onMouseLeave={() => onHoverRegion?.(null)}
@@ -706,12 +704,12 @@ export default function DrawingViewer({
                   return (
                     <rect
                       key={`ctx-ft-${f.layer}-${i}`}
-                      x={pos[0] - pointRadius} y={pos[1] - pointRadius}
-                      width={pointRadius * 2} height={pointRadius * 2}
+                      x={pos[0] - pointRadius * 1.3} y={pos[1] - pointRadius * 1.3}
+                      width={pointRadius * 2.6} height={pointRadius * 2.6}
                       fill={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
-                      stroke={isSelected ? '#F59E0B' : baseColor}
-                      strokeWidth={isSelected ? strokeBase * 3 : strokeBase}
-                      opacity={isSelected || isHovered ? 1 : 0.65}
+                      stroke="white"
+                      strokeWidth={strokeBase * 1.5}
+                      opacity={1}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'fitting', key: f.layer })}
                       onMouseLeave={() => onHoverRegion?.(null)}
@@ -854,7 +852,7 @@ export default function DrawingViewer({
               <ToolBtn active={showBackdrop} onClick={() => setShowBackdrop(v => !v)} title="Toggle Drawing Backdrop (B)">🗺️</ToolBtn>
               <ToolBtn active={false} onClick={clearSelection} title="Clear Selection (Esc)">↶</ToolBtn>
             </div>
-            <div className="flex gap-2 bg-white/95 rounded-md shadow-md px-2 py-1 text-[10px] font-medium">
+            <div className="flex gap-2 bg-white/95 rounded-md shadow-md px-3 py-1.5 text-xs font-medium">
               {([
                 ['#ef4444', 'Fire'],
                 ['#3b82f6', 'Water'],
@@ -864,8 +862,8 @@ export default function DrawingViewer({
                 ['#22c55e', 'Fitout'],
                 ['#94a3b8', 'Other'],
               ] as [string, string][]).map(([color, label]) => (
-                <span key={label} className="flex items-center gap-1 text-slate-700">
-                  <span style={{ background: color, width: 8, height: 8, borderRadius: 2, display: 'inline-block', flexShrink: 0 }} />
+                <span key={label} className="flex items-center gap-1.5 text-slate-800 font-medium">
+                  <span style={{ background: color, width: 14, height: 6, borderRadius: 3, display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 1px rgba(0,0,0,0.15)' }} />
                   {label}
                 </span>
               ))}
