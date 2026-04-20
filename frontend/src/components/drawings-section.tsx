@@ -32,6 +32,7 @@ export default function DrawingsSection({ projectId, initialDrawings }: { projec
   const router = useRouter();
   const [drawings, setDrawings] = useState<Drawing[]>(initialDrawings);
   const [processing, setProcessing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
@@ -132,9 +133,29 @@ export default function DrawingsSection({ projectId, initialDrawings }: { projec
           </div>
         )}
         {hasComplete && !processing && (
-          <Link href={`/dashboard/projects/${projectId}/takeoff`} className="px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy text-sm font-medium">
-            View Takeoff
-          </Link>
+          <>
+            <button
+              onClick={async () => {
+                setRegenerating(true);
+                setError(null);
+                try {
+                  await fetch(`/api/projects/${projectId}/takeoff`, { method: 'POST' });
+                  router.push(`/dashboard/projects/${projectId}/takeoff`);
+                } catch {
+                  setError('Takeoff regeneration failed.');
+                } finally {
+                  setRegenerating(false);
+                }
+              }}
+              disabled={regenerating}
+              className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 text-sm font-medium disabled:opacity-50"
+            >
+              {regenerating ? 'Regenerating…' : 'Regenerate Takeoffs'}
+            </button>
+            <Link href={`/dashboard/projects/${projectId}/takeoff`} className="px-4 py-2 bg-ppg-blue text-white rounded-md hover:bg-ppg-navy text-sm font-medium">
+              View Takeoff
+            </Link>
+          </>
         )}
       </div>
 
