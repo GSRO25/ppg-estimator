@@ -20,13 +20,19 @@ export async function GET() {
   if (!authed.ok) return authed.response;
   const { tenantId } = authed.ctx;
 
-  // The user's active rate card version. For now, we use the rate card
-  // attached to the tenant's most recent project. Phase 3 will formalise
-  // this as a per-tenant default.
+  // The user's active rate card version. Prefer one explicitly attached to
+  // a recent project; fall back to the tenant's most recently imported rate
+  // card so the suggester still works even before any project binds one.
+  // Phase 3 will formalise this as a per-tenant default column.
   const [activeRcv] = await query<{ id: number }>(
-    `SELECT rate_card_version_id AS id FROM projects
-     WHERE tenant_id = $1 AND rate_card_version_id IS NOT NULL
-     ORDER BY updated_at DESC LIMIT 1`,
+    `SELECT id FROM (
+       SELECT rate_card_version_id AS id, updated_at AS at, 0 AS rank FROM projects
+       WHERE tenant_id = $1 AND rate_card_version_id IS NOT NULL
+       UNION ALL
+       SELECT id, imported_at AS at, 1 AS rank FROM rate_card_versions
+       WHERE tenant_id = $1
+     ) sub
+     ORDER BY rank, at DESC LIMIT 1`,
     [tenantId]
   );
   const rateCardVersionId = activeRcv?.id ?? null;

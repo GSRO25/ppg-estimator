@@ -185,9 +185,10 @@ export default function MappingsReviewPage() {
   const reviewedPct = rows.length === 0 ? 0 : Math.round((mapped.length / rows.length) * 100);
 
   return (
-    <div className="flex gap-4 h-full">
-      {/* Left: review queue */}
-      <div className="flex-1 min-w-0 space-y-4">
+    <div className="flex gap-4" style={{ height: 'calc(100vh - 4rem)' }}>
+      {/* Left: review queue — scrolls independently so the right-side
+          preview stays pinned in view regardless of how long the list is. */}
+      <div className="flex-1 min-w-0 space-y-4 overflow-y-auto pr-2">
         {/* Header / progress / bulk actions */}
         <div className="bg-white rounded-lg shadow p-5">
           <div className="flex items-start justify-between">
@@ -286,7 +287,7 @@ export default function MappingsReviewPage() {
 
       {/* Right: sticky drawing preview */}
       {previewRow && previewRow.drawing_id && (
-        <div className="w-[520px] shrink-0 flex flex-col rounded-lg shadow bg-white overflow-hidden border border-slate-200" style={{ height: 640, position: 'sticky', top: 0 }}>
+        <div className="w-[520px] shrink-0 flex flex-col rounded-lg shadow bg-white overflow-hidden border border-slate-200 h-full">
           <div className="flex items-center justify-between px-3 py-2 border-b bg-slate-50 shrink-0">
             <div>
               <span className="text-xs font-semibold text-slate-700">{previewRow.name}</span>

@@ -6,10 +6,12 @@ import { useState, type FormEvent } from 'react';
 export default function ProjectForm() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
+    setError(null);
     const form = new FormData(e.currentTarget);
     const body = {
       name: form.get('name'),
@@ -18,16 +20,22 @@ export default function ProjectForm() {
       start_date: form.get('start_date') || null,
       end_date: form.get('end_date') || null,
     };
-    const res = await fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error ?? `${res.status} ${res.statusText}`);
+      }
       const project = await res.json();
       router.push(`/dashboard/projects/${project.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   return (
@@ -54,6 +62,7 @@ export default function ProjectForm() {
           <input name="end_date" type="date" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm" />
         </div>
       </div>
+      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
       <button
         type="submit"
         disabled={submitting}

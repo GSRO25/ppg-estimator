@@ -23,15 +23,22 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const restrictTo: string[] | undefined = Array.isArray(body.block_names) ? body.block_names : undefined;
 
-  // Active rate card version (same rule as GET /api/mappings).
+  // Active rate card version (same fallback rule as GET /api/mappings):
+  // prefer one attached to a recent project, otherwise the most recently
+  // imported rate card for this tenant.
   const [activeRcv] = await query<{ id: number }>(
-    `SELECT rate_card_version_id AS id FROM projects
-     WHERE tenant_id = $1 AND rate_card_version_id IS NOT NULL
-     ORDER BY updated_at DESC LIMIT 1`,
+    `SELECT id FROM (
+       SELECT rate_card_version_id AS id, updated_at AS at, 0 AS rank FROM projects
+       WHERE tenant_id = $1 AND rate_card_version_id IS NOT NULL
+       UNION ALL
+       SELECT id, imported_at AS at, 1 AS rank FROM rate_card_versions
+       WHERE tenant_id = $1
+     ) sub
+     ORDER BY rank, at DESC LIMIT 1`,
     [tenantId]
   );
   if (!activeRcv) {
-    return NextResponse.json({ error: 'No rate card attached to any project yet.' }, { status: 400 });
+    return NextResponse.json({ error: 'No rate card imported for this tenant yet.' }, { status: 400 });
   }
   const rateCardVersionId = activeRcv.id;
 
