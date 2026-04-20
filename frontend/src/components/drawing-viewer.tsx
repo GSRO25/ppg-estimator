@@ -70,13 +70,13 @@ function cssEscape(name: string): string {
 // Checked in order; first match wins.
 function getServiceColor(serviceType?: string, layer?: string, extra?: string): string {
   const t = [serviceType, layer, extra].filter(Boolean).join(' ').toLowerCase();
-  if (/fire|sprinkler|hydrant|hose\s*reel|fhd|fhr/.test(t))          return '#ef4444'; // red
-  if (/cold.?water|cws|domestic|potable|water.?supply|chilled/.test(t)) return '#3b82f6'; // blue
-  if (/hot.?water|hws|heated|solar|thermostatic/.test(t))              return '#f97316'; // orange
-  if (/drain|sewer|waste|sanit|soil|vent|stormwater/.test(t))          return '#92400e'; // brown
-  if (/gas/.test(t))                                                    return '#ca8a04'; // amber
-  if (/fitout|fixture|fitment/.test(t))                                 return '#22c55e'; // green
-  return '#94a3b8'; // default slate
+  if (/fire|sprinkler|hydrant|hose\s*reel|fhd|fhr/.test(t))          return '#dc2626'; // red
+  if (/cold.?water|cws|domestic|potable|water.?supply|chilled/.test(t)) return '#2563eb'; // blue
+  if (/hot.?water|hws|heated|solar|thermostatic/.test(t))              return '#ea580c'; // orange
+  if (/drain|sewer|waste|sanit|soil|vent|stormwater/.test(t))          return '#7c3aed'; // purple
+  if (/gas/.test(t))                                                    return '#eab308'; // yellow
+  if (/fitout|fixture|fitment/.test(t))                                 return '#16a34a'; // green
+  return '#64748b'; // default slate
 }
 
 function formatDistance(d: number): string {
@@ -606,7 +606,7 @@ export default function DrawingViewer({
                       <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
-                          style={{ pointerEvents: 'none', mixBlendMode: 'multiply', filter: 'grayscale(1) contrast(2.5) brightness(0.75)' } as React.CSSProperties}
+                          style={{ pointerEvents: 'none', filter: 'invert(1) grayscale(1) contrast(1.6) brightness(0.9)' }}
                           dangerouslySetInnerHTML={{ __html: backdropInner }}
                         />
                       </g>
@@ -620,7 +620,7 @@ export default function DrawingViewer({
                   <g transform={`scale(1, -1) translate(0, ${-(bounds.min_y + bounds.max_y)})`}>
                     <g
                       className="backdrop"
-                      style={{ pointerEvents: 'none', mixBlendMode: 'multiply', filter: 'grayscale(1) contrast(2.5) brightness(0.75)' } as React.CSSProperties}
+                      style={{ pointerEvents: 'none', filter: 'invert(1) grayscale(1) contrast(1.6) brightness(0.9)' }}
                       dangerouslySetInnerHTML={{ __html: backdropInner }}
                     />
                   </g>
@@ -635,20 +635,30 @@ export default function DrawingViewer({
                 fill="none" stroke="#e2e8f0" strokeWidth={strokeBase}
               />
 
-              {/* Context: all pipes — coloured by service type */}
+              {/* Context: all pipes — coloured by service type.
+                  Rendered in two passes: a fat white halo underneath for
+                  contrast against the backdrop, then the colored line on top. */}
               {visiblePipes.flatMap(p => {
                 const isHovered = hoveredRegion?.type === 'pipe' && hoveredRegion.key === p.layer;
                 const baseColor = getServiceColor(p.service_type, p.layer);
-                return p.segments.map((s, i) => {
+                return p.segments.flatMap((s, i) => {
                   const isSelected = selected?.kind === 'pipe' && selected.layer === p.layer
                     && selected.segment[0][0] === s[0][0] && selected.segment[0][1] === s[0][1]
                     && selected.segment[1][0] === s[1][0] && selected.segment[1][1] === s[1][1];
-                  return (
+                  const colorW = isSelected ? strokeBase * 6 : (isHovered ? strokeBase * 5 : strokeBase * 3.5);
+                  const haloW = colorW + strokeBase * 3;
+                  return [
+                    <line
+                      key={`p-halo-${p.layer}-${i}`}
+                      x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
+                      stroke="white" strokeWidth={haloW} strokeLinecap="round"
+                      pointerEvents="none"
+                    />,
                     <line
                       key={`p-${p.layer}-${i}`}
                       x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
                       stroke={isSelected ? '#F59E0B' : (isHovered ? '#F59E0B' : baseColor)}
-                      strokeWidth={isSelected ? strokeBase * 6 : (isHovered ? strokeBase * 5 : strokeBase * 3)}
+                      strokeWidth={colorW} strokeLinecap="round"
                       opacity={1}
                       className="cursor-pointer"
                       onMouseEnter={() => onHoverRegion?.({ type: 'pipe', key: p.layer })}
@@ -660,8 +670,8 @@ export default function DrawingViewer({
                         setSelected({ kind: 'pipe', layer: p.layer, service_type: p.service_type, segment: s, length });
                         onClickRegion?.({ type: 'pipe', key: p.layer });
                       }}
-                    />
-                  );
+                    />,
+                  ];
                 });
               })}
 
@@ -854,13 +864,13 @@ export default function DrawingViewer({
             </div>
             <div className="flex gap-2 bg-white/95 rounded-md shadow-md px-3 py-1.5 text-xs font-medium">
               {([
-                ['#ef4444', 'Fire'],
-                ['#3b82f6', 'Water'],
-                ['#f97316', 'Hot Water'],
-                ['#92400e', 'Drainage'],
-                ['#ca8a04', 'Gas'],
-                ['#22c55e', 'Fitout'],
-                ['#94a3b8', 'Other'],
+                ['#dc2626', 'Fire'],
+                ['#2563eb', 'Water'],
+                ['#ea580c', 'Hot Water'],
+                ['#7c3aed', 'Drainage'],
+                ['#eab308', 'Gas'],
+                ['#16a34a', 'Fitout'],
+                ['#64748b', 'Other'],
               ] as [string, string][]).map(([color, label]) => (
                 <span key={label} className="flex items-center gap-1.5 text-slate-800 font-medium">
                   <span style={{ background: color, width: 14, height: 6, borderRadius: 3, display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 1px rgba(0,0,0,0.15)' }} />
