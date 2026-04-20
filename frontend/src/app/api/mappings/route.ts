@@ -3,18 +3,32 @@ import { query } from '@/lib/db';
 
 // All known block/layer names from extraction results, merged with current mappings
 export async function GET() {
-  // Fixtures: block names from extraction results
-  const blocks = await query<{ name: string; type: string }>(
-    `SELECT DISTINCT jsonb_array_elements(extraction_result->'fixtures')->>'block_name' AS name,
-            'block' AS type
-     FROM drawings WHERE extraction_result IS NOT NULL`
+  // Fixtures: block names + first drawing that contains them
+  const blocks = await query<{ name: string; type: string; drawing_id: number; drawing_filename: string; project_name: string }>(
+    `SELECT DISTINCT ON (name)
+            jsonb_array_elements(extraction_result->'fixtures')->>'block_name' AS name,
+            'block' AS type,
+            d.id AS drawing_id,
+            d.filename AS drawing_filename,
+            p.name AS project_name
+     FROM drawings d
+     JOIN projects p ON p.id = d.project_id
+     WHERE d.extraction_result IS NOT NULL
+     ORDER BY name, d.id`
   );
 
-  // Pipes: layer names from extraction results
-  const layers = await query<{ name: string; type: string }>(
-    `SELECT DISTINCT jsonb_array_elements(extraction_result->'pipes')->>'layer' AS name,
-            'layer' AS type
-     FROM drawings WHERE extraction_result IS NOT NULL`
+  // Pipes: layer names + first drawing that contains them
+  const layers = await query<{ name: string; type: string; drawing_id: number; drawing_filename: string; project_name: string }>(
+    `SELECT DISTINCT ON (name)
+            jsonb_array_elements(extraction_result->'pipes')->>'layer' AS name,
+            'layer' AS type,
+            d.id AS drawing_id,
+            d.filename AS drawing_filename,
+            p.name AS project_name
+     FROM drawings d
+     JOIN projects p ON p.id = d.project_id
+     WHERE d.extraction_result IS NOT NULL
+     ORDER BY name, d.id`
   );
 
   const allNames = [...blocks, ...layers].filter(r => r.name);
@@ -27,9 +41,12 @@ export async function GET() {
   );
   const mappingMap = Object.fromEntries(mappings.map(m => [m.cad_block_name, m]));
 
-  const result = allNames.map(({ name, type }) => ({
+  const result = allNames.map(({ name, type, drawing_id, drawing_filename, project_name }) => ({
     name,
     type,
+    drawing_id: drawing_id ?? null,
+    drawing_filename: drawing_filename ?? null,
+    project_name: project_name ?? null,
     rate_card_item_id: mappingMap[name]?.rate_card_item_id ?? null,
     rate_card_description: mappingMap[name]
       ? `${mappingMap[name].section_name} — ${mappingMap[name].description}`

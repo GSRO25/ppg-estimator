@@ -42,6 +42,9 @@ export interface TooltipRow {
 interface Props {
   drawingId: number;
   highlight: Highlight | null;
+  // Alternative to highlight: derive locations/segments from the fetched geometry
+  // by matching name. Used by the mappings preview panel.
+  highlightByName?: { type: 'fixture' | 'pipe' | 'fitting'; name: string } | null;
   onClose?: () => void;
   mode?: 'modal' | 'inline';
   onHoverRegion?: (region: { type: string; key: string } | null) => void;
@@ -114,6 +117,7 @@ function ToolBtn({ active, onClick, title, children }: { active: boolean; onClic
 export default function DrawingViewer({
   drawingId,
   highlight,
+  highlightByName = null,
   onClose,
   mode = 'modal',
   onHoverRegion,
@@ -162,6 +166,25 @@ export default function DrawingViewer({
     if (!xs.length) return null;
     return { min_x: Math.min(...xs), max_x: Math.max(...xs), min_y: Math.min(...ys), max_y: Math.max(...ys) };
   }, [geom]);
+
+  // Derive a Highlight from geom when highlightByName is set (used by mappings preview).
+  const derivedHighlight = useMemo((): Highlight | null => {
+    if (highlight) return highlight;
+    if (!highlightByName || !geom) return null;
+    if (highlightByName.type === 'fixture') {
+      const f = geom.fixtures.find(fx => fx.block_name === highlightByName.name);
+      return f ? { type: 'fixture', block_name: f.block_name, locations: f.locations } : null;
+    }
+    if (highlightByName.type === 'pipe') {
+      const p = geom.pipes.find(px => px.layer === highlightByName.name);
+      return p ? { type: 'pipe', layer: p.layer, segments: p.segments } : null;
+    }
+    if (highlightByName.type === 'fitting') {
+      const ft = geom.fittings.find(f => f.layer === highlightByName.name);
+      return ft ? { type: 'fitting', layer: ft.layer, positions: ft.positions } : null;
+    }
+    return null;
+  }, [highlight, highlightByName, geom]);
 
   // Pan clamping uses geometry bounds (not drawing_extents) so the user cannot
   // scroll out to title blocks or legend pages that live at a large offset.
@@ -473,13 +496,13 @@ export default function DrawingViewer({
           <div>
             <div className="text-xs text-gray-400 uppercase">Drawing</div>
             <div className="text-sm font-semibold text-gray-900">{geom?.filename || `Drawing #${drawingId}`}</div>
-            {highlight && (
+            {derivedHighlight && (
               <div className="text-xs text-gray-500 mt-0.5">
-                Highlighting: {highlight.type === 'fixture'
-                  ? `${highlight.block_name} · ${highlight.locations.length} locations`
-                  : highlight.type === 'pipe'
-                    ? `${highlight.layer} · ${highlight.segments.length} segments`
-                    : `${highlight.layer} · ${highlight.positions.length} fittings`}
+                Highlighting: {derivedHighlight.type === 'fixture'
+                  ? `${derivedHighlight.block_name} · ${derivedHighlight.locations.length} locations`
+                  : derivedHighlight.type === 'pipe'
+                    ? `${derivedHighlight.layer} · ${derivedHighlight.segments.length} segments`
+                    : `${derivedHighlight.layer} · ${derivedHighlight.positions.length} fittings`}
               </div>
             )}
           </div>
@@ -666,14 +689,14 @@ export default function DrawingViewer({
               })}
 
               {/* Highlight layer on top */}
-              {highlight?.type === 'fixture' && highlight.locations.map((loc, i) => (
+              {derivedHighlight?.type === 'fixture' && derivedHighlight.locations.map((loc, i) => (
                 <g key={`h-fx-${i}`}>
                   <circle cx={loc[0]} cy={loc[1]} r={pointRadius * 3} fill="none" stroke="#ef4444" strokeWidth={strokeBase * 2} />
                   <circle cx={loc[0]} cy={loc[1]} r={pointRadius * 1.2} fill="#ef4444" />
                 </g>
               ))}
 
-              {highlight?.type === 'pipe' && highlight.segments.map((s, i) => (
+              {derivedHighlight?.type === 'pipe' && derivedHighlight.segments.map((s, i) => (
                 <line
                   key={`h-p-${i}`}
                   x1={s[0][0]} y1={s[0][1]} x2={s[1][0]} y2={s[1][1]}
@@ -681,7 +704,7 @@ export default function DrawingViewer({
                 />
               ))}
 
-              {highlight?.type === 'fitting' && highlight.positions.map((p, i) => (
+              {derivedHighlight?.type === 'fitting' && derivedHighlight.positions.map((p, i) => (
                 <rect
                   key={`h-ft-${i}`}
                   x={p[0] - pointRadius * 2} y={p[1] - pointRadius * 2}
