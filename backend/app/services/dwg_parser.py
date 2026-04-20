@@ -184,8 +184,9 @@ def _filter_to_drawing_area(fixtures, fittings, pipes):
     This eliminates block symbols placed on legend or notes pages, which live
     at a different modelspace offset from the real drawing content.
 
-    If no pipes were extracted the geometry is returned unchanged — there is no
-    reference area to filter against.
+    A drawing with fixtures but zero pipes is a legend, schedule, or detail
+    sheet — not a real installation drawing. Return empty in that case so
+    schedule symbols never become takeoff line items.
     """
     pipe_pts = [
         (x, y)
@@ -194,7 +195,10 @@ def _filter_to_drawing_area(fixtures, fittings, pipes):
         for (x, y) in seg
     ]
     if not pipe_pts:
-        return fixtures, fittings
+        # No pipes → this is a legend/schedule/detail sheet, not an installation
+        # drawing. Drop all fixtures and fittings to avoid schedule symbols
+        # appearing as phantom takeoff items.
+        return [], []
 
     px = [p[0] for p in pipe_pts]
     py = [p[1] for p in pipe_pts]
