@@ -545,8 +545,8 @@ export default function DrawingViewer({
                       <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
-                          opacity={0.92}
-                          style={{ pointerEvents: 'none', filter: 'contrast(1.15) brightness(0.97)' }}
+                          opacity={0.9}
+                          style={{ pointerEvents: 'none', filter: 'grayscale(1) invert(1) contrast(1.2)' }}
                           dangerouslySetInnerHTML={{ __html: backdropInner }}
                         />
                       </g>
@@ -561,7 +561,7 @@ export default function DrawingViewer({
                     <g
                       className="backdrop"
                       opacity={0.92}
-                      style={{ pointerEvents: 'none', filter: 'contrast(1.15) brightness(0.97)' }}
+                      style={{ pointerEvents: 'none', filter: 'grayscale(1) invert(1) contrast(1.2)' }}
                       dangerouslySetInnerHTML={{ __html: backdropInner }}
                     />
                   </g>
