@@ -234,20 +234,15 @@ export default function DrawingViewer({
     const pipeW = pipeBounds ? pipeBounds.max_x - pipeBounds.min_x : 0;
     const pipeH = pipeBounds ? pipeBounds.max_y - pipeBounds.min_y : 0;
 
-    let vw: number, vh: number;
-
-    if (derivedHighlight.type === 'fixture' || derivedHighlight.type === 'fitting') {
-      // Point-like: show a neighbourhood. Use ~15% of pipe network as the
-      // floor so a single point is visible at a useful zoom. Grow only if
-      // the points are spread wider.
-      const floor = Math.max(pipeW, pipeH) * 0.15;
-      vw = Math.max(hW * 1.5, floor);
-      vh = Math.max(hH * 1.5, floor);
-    } else {
-      // Pipe layer: frame tight to the highlight bbox with modest padding.
-      vw = Math.max(hW * 1.25, pipeW * 0.05);
-      vh = Math.max(hH * 1.25, pipeH * 0.05);
-    }
+    // Unified framing for both fixtures and pipes: the highlighted element
+    // should always be visible surrounded by enough drawing context to
+    // orient yourself. 25% of the pipe network is the floor — a short
+    // pipe stub or single fixture shows its neighbourhood, not a blank
+    // viewport zoomed to the element itself. Grow larger only when the
+    // highlight's own bbox is bigger than that floor.
+    const floor = Math.max(pipeW, pipeH) * 0.25;
+    let vw = Math.max(hW * 1.5, floor);
+    let vh = Math.max(hH * 1.5, floor);
 
     // Cap viewport to the pipe network so we never overshoot into title
     // blocks or legends.
