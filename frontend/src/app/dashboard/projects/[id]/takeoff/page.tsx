@@ -121,14 +121,14 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-100">
         <div className="text-slate-400 text-sm">Loading takeoff data…</div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-900">
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-100">
       {/* Top bar: back nav + section tabs + grand total + grid toggle */}
       <div className="flex items-center justify-between px-4 py-2 border-b bg-white shrink-0">
         <div className="flex items-center gap-3 min-w-0">
@@ -157,7 +157,7 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
 
       {/* Full-screen drawing with floating grid panel */}
       {/* Clicking the drawing area (outside the panel) closes the panel */}
-      <div className="relative flex-1 overflow-hidden bg-slate-900" onClick={() => showGrid && setShowGrid(false)}>
+      <div className="relative flex-1 overflow-hidden bg-slate-100" onClick={() => showGrid && setShowGrid(false)}>
         {/* Drawing fills the entire area */}
         {activeDrawingId ? (
           <DrawingViewer

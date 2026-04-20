@@ -490,7 +490,7 @@ export default function DrawingViewer({
         </div>
       )}
 
-      <div ref={containerRef} className={`relative flex-1 overflow-hidden ${isInline ? 'bg-slate-900' : 'bg-slate-50'}`}>
+      <div ref={containerRef} className={`relative flex-1 overflow-hidden ${isInline ? 'bg-white' : 'bg-slate-50'}`}>
         {err && <div className="p-8 text-sm text-red-500">Failed to load: {err}</div>}
         {!geom && !err && <div className="p-8 text-sm text-gray-400">Loading drawing…</div>}
         {geom && !bounds && <div className="p-8 text-sm text-gray-400">No geometry available for this drawing.</div>}
@@ -545,8 +545,8 @@ export default function DrawingViewer({
                       <g transform={`matrix(${sx}, 0, 0, ${-sy}, ${tx}, ${ty})`}>
                         <g
                           className="backdrop"
-                          opacity={0.75}
-                          style={{ pointerEvents: 'none', filter: 'invert(1) hue-rotate(180deg)' }}
+                          opacity={0.92}
+                          style={{ pointerEvents: 'none', filter: 'contrast(1.15) brightness(0.97)' }}
                           dangerouslySetInnerHTML={{ __html: backdropInner }}
                         />
                       </g>
@@ -560,8 +560,8 @@ export default function DrawingViewer({
                   <g transform={`scale(1, -1) translate(0, ${-(bounds.min_y + bounds.max_y)})`}>
                     <g
                       className="backdrop"
-                      opacity={0.35}
-                      style={{ pointerEvents: 'none' }}
+                      opacity={0.92}
+                      style={{ pointerEvents: 'none', filter: 'contrast(1.15) brightness(0.97)' }}
                       dangerouslySetInnerHTML={{ __html: backdropInner }}
                     />
                   </g>
