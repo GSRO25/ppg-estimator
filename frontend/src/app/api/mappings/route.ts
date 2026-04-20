@@ -3,32 +3,39 @@ import { query } from '@/lib/db';
 
 // All known block/layer names from extraction results, merged with current mappings
 export async function GET() {
-  // Fixtures: block names + first drawing that contains them
+  // Only show blocks/layers from drawings that have pipes (legend/schedule sheets
+  // have no pipes and their symbols must not appear as mappings).
+  // Also strip drawing-reference callout blocks matching the same rules as block_counter.py.
   const blocks = await query<{ name: string; type: string; drawing_id: number; drawing_filename: string; project_name: string }>(
-    `SELECT DISTINCT ON (name)
-            jsonb_array_elements(extraction_result->'fixtures')->>'block_name' AS name,
-            'block' AS type,
-            d.id AS drawing_id,
-            d.filename AS drawing_filename,
-            p.name AS project_name
-     FROM drawings d
-     JOIN projects p ON p.id = d.project_id
-     WHERE d.extraction_result IS NOT NULL
-     ORDER BY name, d.id`
+    `SELECT DISTINCT ON (name) name, 'block' AS type, drawing_id, drawing_filename, project_name
+     FROM (
+       SELECT jsonb_array_elements(d.extraction_result->'fixtures')->>'block_name' AS name,
+              d.id AS drawing_id, d.filename AS drawing_filename, p.name AS project_name
+       FROM drawings d
+       JOIN projects p ON p.id = d.project_id
+       WHERE d.extraction_result IS NOT NULL
+         AND jsonb_array_length(COALESCE(d.extraction_result->'pipes', '[]'::jsonb)) > 0
+     ) sub
+     WHERE name IS NOT NULL
+       AND name !~* 'dwg[-_]'
+       AND name !~* '^[0-9]{5}'
+       AND name !~* '-[Dd]etail\\s*\\d+$'
+     ORDER BY name, drawing_id`
   );
 
   // Pipes: layer names + first drawing that contains them
   const layers = await query<{ name: string; type: string; drawing_id: number; drawing_filename: string; project_name: string }>(
-    `SELECT DISTINCT ON (name)
-            jsonb_array_elements(extraction_result->'pipes')->>'layer' AS name,
-            'layer' AS type,
-            d.id AS drawing_id,
-            d.filename AS drawing_filename,
-            p.name AS project_name
-     FROM drawings d
-     JOIN projects p ON p.id = d.project_id
-     WHERE d.extraction_result IS NOT NULL
-     ORDER BY name, d.id`
+    `SELECT DISTINCT ON (name) name, 'layer' AS type, drawing_id, drawing_filename, project_name
+     FROM (
+       SELECT jsonb_array_elements(d.extraction_result->'pipes')->>'layer' AS name,
+              d.id AS drawing_id, d.filename AS drawing_filename, p.name AS project_name
+       FROM drawings d
+       JOIN projects p ON p.id = d.project_id
+       WHERE d.extraction_result IS NOT NULL
+         AND jsonb_array_length(COALESCE(d.extraction_result->'pipes', '[]'::jsonb)) > 0
+     ) sub
+     WHERE name IS NOT NULL
+     ORDER BY name, drawing_id`
   );
 
   const allNames = [...blocks, ...layers].filter(r => r.name);
