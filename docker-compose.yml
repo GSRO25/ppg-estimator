@@ -21,10 +21,11 @@ services:
     image: ppg-estimator-extraction:stable
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - UPLOAD_DIR=/data/uploads
       - EXPORT_DIR=/data/exports
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - uploads:/data/uploads
       - exports:/data/exports
@@ -43,18 +44,13 @@ services:
     build: ./frontend
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://ppg:changeme@db:5432/ppg_estimator}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret-change-in-production}
       - EXTRACTION_API_URL=http://extraction:8000
       - UPLOAD_DIR=/data/uploads
       - EXPORT_DIR=/data/exports
       - AUTH_TRUST_HOST=true
-      - AUTH_GOOGLE_ID=${AUTH_GOOGLE_ID}
-      - AUTH_GOOGLE_SECRET=${AUTH_GOOGLE_SECRET}
-      - ALLOWED_EMAILS=${ALLOWED_EMAILS}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
     volumes:
       - uploads:/data/uploads
