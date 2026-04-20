@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@react-pdf/renderer": "^4.1.0",
     "ag-grid-community": "^35.2.1",
     "ag-grid-react": "^35.2.1",
