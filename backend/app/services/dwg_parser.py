@@ -75,7 +75,11 @@ def parse_drawing(file_path: str) -> ExtractionResult:
     # into the narrower extracted-geometry bounds.
     drawing_extents = _dwg_extents(doc, bounds)
 
-    annotations = read_annotations(msp)
+    # Pass the full doc — the reader now walks modelspace, every paper-space
+    # layout, every INSERT block's ATTRIB fields, and the DXF header. Title
+    # block text almost never lives in modelspace, so reading only `msp`
+    # was the reason auto-detect kept returning "no title block found".
+    annotations = read_annotations(doc)
 
     # PR3: spatial association of nearby annotations to extracted elements
     try:

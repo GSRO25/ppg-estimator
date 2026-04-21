@@ -18,7 +18,7 @@ interface LegendDataWithUsage {
 }
 
 interface ExtractionResult {
-  annotations?: Array<{ text?: string; layer?: string; position?: unknown }>;
+  annotations?: Array<{ text?: string; layer?: string; position?: unknown; source?: string }>;
   fixtures?: Array<{ block_name?: string; layer?: string }>;
   pipes?: Array<{ layer?: string }>;
   legend_data?: LegendDataWithUsage | null;
@@ -81,6 +81,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
           text: a.text ?? '',
           position: a.position,
           layer: a.layer,
+          source: a.source ?? 'modelspace',
         })),
         blockNames: Array.from(new Set((result.fixtures ?? []).map(f => f.block_name ?? '').filter(Boolean))),
         layerNames: Array.from(new Set([

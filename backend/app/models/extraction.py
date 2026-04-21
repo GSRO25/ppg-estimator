@@ -35,6 +35,15 @@ class ExtractedAnnotation(BaseModel):
     text: str
     layer: str
     position: tuple[float, float]
+    # Where the text came from. Helps the firm-detector weight title-block
+    # sources higher than random model-space labels:
+    #   "modelspace" — TEXT/MTEXT entity in model space (previous default)
+    #   "paperspace" — TEXT/MTEXT on a sheet layout (often contains title block)
+    #   "block_attribute" — an ATTDEF value on an INSERT block (classic
+    #                       title-block pattern: single INSERT of a block
+    #                       named TBLK with fields like DRAWN_BY, FIRM_NAME)
+    #   "header" — DXF file metadata ($COMPANY, $AUTHOR, $LASTSAVEDBY)
+    source: str = "modelspace"
 
 
 class LayerSummary(BaseModel):

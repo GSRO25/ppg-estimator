@@ -17,7 +17,7 @@ import { recordLlmUsage } from '@/lib/llm-usage';
  */
 
 export interface DetectionInput {
-  annotations: Array<{ text: string; position?: unknown; layer?: string }>;
+  annotations: Array<{ text: string; position?: unknown; layer?: string; source?: string }>;
   blockNames: string[];
   layerNames: string[];
 }
@@ -38,18 +38,26 @@ const SYSTEM_PROMPT = `You are analyzing Australian hydraulic/plumbing CAD drawi
   2. The BUILDER (construction company) that will construct the project
 
 You will receive:
-  - Text annotations extracted from the drawing (typically includes title block text, firm names, drafter initials)
+  - Text annotations from the drawing, each tagged with a "source":
+      * "header"          — DXF file metadata ($COMPANY, $AUTHOR). HIGHEST signal.
+      * "block_attribute" — ATTRIB value on a title-block INSERT (DRAWN_BY,
+                            FIRM_NAME, CLIENT, etc.). VERY HIGH signal.
+      * "paperspace"      — text on a sheet layout (title blocks live here). HIGH signal.
+      * "modelspace"      — text in the drawing area (usually labels, not firm names).
   - CAD block names used in the drawing
   - CAD layer names used in the drawing
 
 Rules:
-  1. Extract firm names as they appear in the drawing. Normalise minor formatting (e.g. "JACOBS" → "Jacobs", "LENDLEASE Pty Ltd" → "Lendlease") but DO NOT invent firms.
-  2. Primary signal is title block text. A direct firm name = HIGH confidence.
-  3. Consulting engineer has hints like: stamp text, "Drawn by", drafter initials (DC, MG, etc.), address with engineering license numbers.
-  4. Builder has hints like: "Client:", "For:", "Contractor:", project management company names.
-  5. If signals are weak (only drafting conventions suggest a firm, no title block text) → MEDIUM or LOW.
-  6. If you can't identify a firm from the drawing, return null — DO NOT guess.
-  7. The consulting engineer and builder are DIFFERENT companies. Never return the same name for both.
+  1. Weight signals by source. A firm name in "header" or "block_attribute" = HIGH confidence.
+     A firm name only in "modelspace" (probably just a label) = MEDIUM at best.
+  2. Extract firm names as they appear. Normalise minor formatting ("JACOBS" → "Jacobs",
+     "LENDLEASE Pty Ltd" → "Lendlease") but DO NOT invent firms.
+  3. Consulting engineer hints: stamp text, "Drawn by", drafter initials, engineering
+     license numbers, ABN, firm name in $COMPANY header.
+  4. Builder hints: "Client:", "For:", "Contractor:", project management names.
+  5. If you can't identify a firm, return null — DO NOT guess.
+  6. The consulting engineer and builder are DIFFERENT companies. Never return the same
+     name for both.
 
 Return STRICT JSON ONLY (no markdown):
 {
