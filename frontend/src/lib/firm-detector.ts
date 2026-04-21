@@ -79,7 +79,6 @@ export async function detectFirms(
   input: DetectionInput
 ): Promise<DetectionResult> {
   const empty: FirmDetection = { name: null, confidence: null, evidence: null };
-  const emptyResult: DetectionResult = { consulting_engineer: empty, builder: empty };
 
   const client = getClient();
   if (!client) {
@@ -89,10 +88,34 @@ export async function detectFirms(
     };
   }
 
+  // Early exit when there's nothing worth sending. A real title block
+  // has a firm name + address + project name + drawing number + etc. If
+  // we have fewer than ~5 meaningful text annotations, Claude can only
+  // reply "I see no title block" — and we'd pay ~$0.20 for that answer.
+  // Filter out pure-numeric dimensions ("225", "L/s"), single letters,
+  // and whitespace. If what remains is thin, skip the call.
+  const meaningfulAnnotations = input.annotations.filter(a => {
+    const t = (a.text ?? '').trim();
+    if (t.length < 3) return false;                 // "A", "*", ""
+    if (/^[\d\s.,\-+=\/x×]+$/.test(t)) return false; // "225", "1:100", "12.5"
+    return true;
+  });
+  const MIN_MEANINGFUL = 5;
+  if (meaningfulAnnotations.length < MIN_MEANINGFUL) {
+    return {
+      consulting_engineer: {
+        ...empty,
+        evidence: `Skipped (saved API call): only ${meaningfulAnnotations.length} readable annotations on the drawing — title block not in modelspace.`,
+      },
+      builder: {
+        ...empty,
+        evidence: `Skipped (saved API call): only ${meaningfulAnnotations.length} readable annotations.`,
+      },
+    };
+  }
+
   const payload = {
-    annotations: input.annotations
-      .filter(a => a.text && a.text.trim().length > 0)
-      .slice(0, 300),
+    annotations: meaningfulAnnotations.slice(0, 300),
     block_names: input.blockNames.slice(0, 80),
     layer_names: input.layerNames.slice(0, 80),
   };
