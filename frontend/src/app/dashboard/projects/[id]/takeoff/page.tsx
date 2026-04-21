@@ -138,6 +138,13 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
           >
             ← Back
           </Link>
+          <Link
+            href="/dashboard/settings/mappings"
+            className="flex items-center gap-1 text-xs font-medium text-ppg-navy hover:text-ppg-blue shrink-0 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200"
+            title="Review AI suggestions — $0 items here become priced when mapped"
+          >
+            ✓ Review Queue
+          </Link>
           <div className="w-px h-4 bg-slate-200 shrink-0" />
           <SectionTabs sections={sections} activeSection={activeSection} onSelect={setActiveSection} />
         </div>
