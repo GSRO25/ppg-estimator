@@ -7,10 +7,15 @@ import { suggestMappings, type SuggestionInput } from '@/lib/mapping-suggester';
  * POST /api/mappings/suggest
  *
  * Compute AI suggestions for any unmapped blocks in the current tenant's
- * drawings that don't already have a cached suggestion for the active
- * rate-card version. Called lazily from the review-queue page.
+ * drawings that don't already have a cached suggestion for the given
+ * (consulting_engineer_id, rate_card_version) pair. Called lazily from
+ * the review-queue page.
  *
- * Body (optional): { block_names?: string[] } — restrict to a subset.
+ * Body (optional):
+ *   consultingEngineerId: number | null  — scope suggestions to this CE
+ *                                          and only compute for blocks
+ *                                          in that CE's drawings
+ *   block_names: string[]                — restrict to a subset
  *
  * Returns the new suggestions. Caller merges with the GET /api/mappings
  * response to render.
@@ -22,10 +27,8 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const restrictTo: string[] | undefined = Array.isArray(body.block_names) ? body.block_names : undefined;
+  const consultingEngineerId: number | null = body.consultingEngineerId ?? null;
 
-  // Active rate card version (same fallback rule as GET /api/mappings):
-  // prefer one attached to a recent project, otherwise the most recently
-  // imported rate card for this tenant.
   const [activeRcv] = await query<{ id: number }>(
     `SELECT id FROM (
        SELECT rate_card_version_id AS id, updated_at AS at, 0 AS rank FROM projects
@@ -42,21 +45,17 @@ export async function POST(request: Request) {
   }
   const rateCardVersionId = activeRcv.id;
 
-  // Build the set of (name, layer, legend_matches) that need a suggestion =
-  // all unmapped blocks/pipe-layers in this tenant's drawings, minus the
-  // ones already cached for this rate_card_version.
-  //
-  // Fixtures AND pipe layers are treated symmetrically — they're both CAD
-  // identifiers that need to resolve to a rate-card line. The earlier
-  // version only queried fixtures, which left pipes orphaned.
-  //
-  // We take one representative occurrence per name (most recent drawing)
-  // so the legend_matches context is meaningful.
+  // Restrict the source drawings to this CE's projects when a CE is
+  // specified. Otherwise process all tenant drawings (tenant-wide mode).
+  const projectFilter = consultingEngineerId ? 'AND p.consulting_engineer_id = $3' : '';
+  const sourceParams = consultingEngineerId
+    ? [tenantId, rateCardVersionId, consultingEngineerId]
+    : [tenantId, rateCardVersionId];
+
   const uncomputed = await query<{ name: string; layer: string | null; legend_data: unknown }>(
     `WITH tenant_blocks AS (
        SELECT DISTINCT ON (name) name, layer, legend_data
        FROM (
-         -- Fixtures (INSERT blocks)
          SELECT fx->>'block_name' AS name,
                 fx->>'layer' AS layer,
                 d.extraction_result->'legend_data' AS legend_data,
@@ -64,11 +63,10 @@ export async function POST(request: Request) {
          FROM drawings d
          JOIN projects p ON p.id = d.project_id,
               LATERAL jsonb_array_elements(d.extraction_result->'fixtures') AS fx
-         WHERE p.tenant_id = $1
+         WHERE p.tenant_id = $1 ${projectFilter}
            AND d.extraction_result IS NOT NULL
            AND jsonb_array_length(COALESCE(d.extraction_result->'pipes', '[]'::jsonb)) > 0
          UNION ALL
-         -- Pipe layers (polyline layer names)
          SELECT pp->>'layer' AS name,
                 pp->>'layer' AS layer,
                 d.extraction_result->'legend_data' AS legend_data,
@@ -76,7 +74,7 @@ export async function POST(request: Request) {
          FROM drawings d
          JOIN projects p ON p.id = d.project_id,
               LATERAL jsonb_array_elements(d.extraction_result->'pipes') AS pp
-         WHERE p.tenant_id = $1
+         WHERE p.tenant_id = $1 ${projectFilter}
            AND d.extraction_result IS NOT NULL
        ) sub
        WHERE name IS NOT NULL
@@ -88,15 +86,20 @@ export async function POST(request: Request) {
      SELECT tb.name, tb.layer, tb.legend_data
      FROM tenant_blocks tb
      WHERE NOT EXISTS (
+       -- Skip blocks already mapped (CE-specific or tenant-wide)
        SELECT 1 FROM symbol_mappings sm
        WHERE sm.tenant_id = $1 AND sm.cad_block_name = tb.name
+         AND (sm.consulting_engineer_id IS NOT DISTINCT FROM ${consultingEngineerId ? '$3' : 'NULL'}
+              OR sm.consulting_engineer_id IS NULL)
      )
      AND NOT EXISTS (
+       -- Skip blocks already suggested for this (CE, rate card) pair
        SELECT 1 FROM mapping_suggestions ms
        WHERE ms.tenant_id = $1 AND ms.cad_block_name = tb.name
          AND ms.rate_card_version_id = $2
+         AND ms.consulting_engineer_id IS NOT DISTINCT FROM ${consultingEngineerId ? '$3' : 'NULL'}
      )`,
-    [tenantId, rateCardVersionId]
+    sourceParams
   );
 
   const filtered = restrictTo
@@ -107,7 +110,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ computed: 0, suggestions: [] });
   }
 
-  // Build SuggestionInput with legend_matches extracted where available.
   const inputs: SuggestionInput[] = filtered.map(u => {
     const legend = (u.legend_data as { legend?: Array<{ symbol?: string; description?: string; size?: string; material?: string }> } | null)?.legend ?? [];
     const legend_matches = legend
@@ -120,21 +122,15 @@ export async function POST(request: Request) {
     };
   });
 
-  // Batch in chunks of 10 to keep each Claude call focused and the JSON
-  // payload well under token limits. This is where API $ is spent.
   const BATCH_SIZE = 10;
   const allResults = [];
   try {
     for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
       const batch = inputs.slice(i, i + BATCH_SIZE);
-      const results = await suggestMappings(tenantId, rateCardVersionId, batch);
+      const results = await suggestMappings(tenantId, rateCardVersionId, batch, consultingEngineerId);
       allResults.push(...results);
     }
   } catch (e) {
-    // Surface the specific error up to the UI — previously threw generic
-    // 500 with an HTML body, which made the client show "Unexpected end of
-    // JSON input". Most common causes: Anthropic credit/billing issue,
-    // rate limit, or malformed model response.
     const msg = e instanceof Error ? e.message : String(e);
     const isBilling = /credit balance|billing|payment/i.test(msg);
     return NextResponse.json({
