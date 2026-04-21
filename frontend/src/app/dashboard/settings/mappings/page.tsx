@@ -11,6 +11,7 @@ interface MappingRow {
   project_name: string | null;
   rate_card_item_id: number | null;
   rate_card_description: string | null;
+  mapping_scope: 'ce-specific' | 'tenant-wide' | null;
   usage_count: number;
   est_value: number;
   suggested_rate_card_item_id: number | null;
@@ -31,8 +32,16 @@ interface RateCardItem {
   material_rate: number;
 }
 
+interface ConsultingEngineer {
+  id: number;
+  name: string;
+  slug: string;
+  is_seed: boolean;
+}
+
 interface MappingsResponse {
   rate_card_version_id: number | null;
+  consulting_engineer_id: number | null;
   rows: MappingRow[];
 }
 
@@ -58,8 +67,11 @@ interface LlmUsageTotals {
 export default function MappingsReviewPage() {
   const [rows, setRows] = useState<MappingRow[]>([]);
   const [rateItems, setRateItems] = useState<RateCardItem[]>([]);
+  const [consultingEngineers, setConsultingEngineers] = useState<ConsultingEngineer[]>([]);
+  const [activeCeId, setActiveCeId] = useState<number | null>(null);
   const [previewRow, setPreviewRow] = useState<MappingRow | null>(null);
   const [rateSearch, setRateSearch] = useState<Record<string, string>>({});
+  const [rowScope, setRowScope] = useState<Record<string, 'ce' | 'all'>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [suggestingAll, setSuggestingAll] = useState(false);
   const [acceptingAllHigh, setAcceptingAllHigh] = useState(false);
@@ -73,12 +85,13 @@ export default function MappingsReviewPage() {
     } catch { /* non-fatal */ }
   }, []);
 
-  const loadRows = useCallback(async () => {
+  const loadRows = useCallback(async (ceId: number | null) => {
     loadUsage();
-    const r = await fetch('/api/mappings').then(r => r.json()) as MappingsResponse;
+    const url = ceId
+      ? `/api/mappings?consultingEngineerId=${ceId}`
+      : '/api/mappings';
+    const r = await fetch(url).then(r => r.json()) as MappingsResponse;
     setRows(r.rows);
-    // Auto-open the preview for the most impactful unmapped row so the
-    // estimator sees context immediately on landing.
     const first = r.rows
       .filter(x => !x.rate_card_item_id && x.drawing_id != null)
       .sort((a, b) => b.usage_count - a.usage_count)[0];
@@ -86,38 +99,39 @@ export default function MappingsReviewPage() {
   }, [loadUsage]);
 
   useEffect(() => {
-    loadRows();
+    fetch('/api/consulting-engineers').then(r => r.json()).then(setConsultingEngineers);
     fetch('/api/rate-cards').then(r => r.json()).then(async (versions: { id: number }[]) => {
       if (!versions.length) return;
       const items = await fetch(`/api/rate-cards/${versions[0].id}`).then(r => r.json());
       setRateItems(items);
     });
-  }, [loadRows]);
+  }, []);
 
-  // Run the AI suggester for any unmapped blocks that don't yet have a
-  // cached suggestion. Called once on mount (if there are any and the
-  // previous attempt didn't fail); user can also trigger manually.
+  useEffect(() => {
+    loadRows(activeCeId);
+  }, [activeCeId, loadRows]);
+
   const runSuggest = useCallback(async () => {
     setSuggestingAll(true);
     setError(null);
     try {
-      const res = await fetch('/api/mappings/suggest', { method: 'POST' });
+      const res = await fetch('/api/mappings/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consultingEngineerId: activeCeId }),
+      });
       const body = await res.json().catch(() => ({ error: `${res.status} ${res.statusText}` }));
       if (!res.ok) throw new Error(body.error ?? 'Suggest failed');
-      await loadRows();
+      await loadRows(activeCeId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSuggestingAll(false);
     }
-  }, [loadRows]);
+  }, [activeCeId, loadRows]);
 
   const [autoRanOnce, setAutoRanOnce] = useState(false);
   useEffect(() => {
-    // Kick off suggestions automatically once per mount if there are
-    // uncached unmapped blocks AND we haven't already tried (or failed)
-    // this session. Skipping on error avoids looping failed API calls
-    // once the user lands with a billing/key problem.
     if (autoRanOnce || suggestingAll || error) return;
     const needsSuggest = rows.some(
       r => !r.rate_card_item_id && r.suggested_confidence === null
@@ -129,37 +143,44 @@ export default function MappingsReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows.length, autoRanOnce, suggestingAll, error]);
 
-  // Accept one suggestion (or manual selection)
+  // When CE changes, allow the auto-run to fire once again for the new scope.
+  useEffect(() => { setAutoRanOnce(false); }, [activeCeId]);
+
   const acceptMapping = useCallback(async (row: MappingRow, rateCardItemId: number, isReject: boolean) => {
     setSaving(row.name);
     try {
+      // Default scope for new mappings: "CE only" if a CE is active, else tenant-wide
+      const scope = rowScope[row.name] ?? (activeCeId ? 'ce' : 'all');
+      const ceIdForMapping = scope === 'ce' ? activeCeId : null;
       await fetch('/api/mappings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: row.name,
           rateCardItemId,
-          // Feedback-loop payload — only when the user overrode the AI
+          consultingEngineerId: ceIdForMapping,
           rejectedRateCardItemId: isReject ? row.suggested_rate_card_item_id : null,
           rejectedReasoning: isReject ? row.suggested_reasoning : null,
         }),
       });
-      // Apply the backfill so existing takeoff_items using this block pick up the rate
       await fetch('/api/mappings/backfill', { method: 'POST' });
-      await loadRows();
+      await loadRows(activeCeId);
     } finally {
       setSaving(null);
     }
-  }, [loadRows]);
+  }, [activeCeId, rowScope, loadRows]);
 
-  const clearMapping = useCallback(async (name: string) => {
+  const clearMapping = useCallback(async (row: MappingRow) => {
+    // Clear at the row's current scope: if it was CE-specific, clear the CE
+    // version; if tenant-wide, clear that one.
+    const ceIdForDelete = row.mapping_scope === 'ce-specific' ? activeCeId : null;
     await fetch('/api/mappings', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name: row.name, consultingEngineerId: ceIdForDelete }),
     });
-    await loadRows();
-  }, [loadRows]);
+    await loadRows(activeCeId);
+  }, [activeCeId, loadRows]);
 
   const acceptAllHighConfidence = useCallback(async () => {
     const targets = rows.filter(
@@ -169,20 +190,25 @@ export default function MappingsReviewPage() {
     setAcceptingAllHigh(true);
     try {
       for (const r of targets) {
+        const scope = rowScope[r.name] ?? (activeCeId ? 'ce' : 'all');
+        const ceIdForMapping = scope === 'ce' ? activeCeId : null;
         await fetch('/api/mappings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: r.name, rateCardItemId: r.suggested_rate_card_item_id }),
+          body: JSON.stringify({
+            name: r.name,
+            rateCardItemId: r.suggested_rate_card_item_id,
+            consultingEngineerId: ceIdForMapping,
+          }),
         });
       }
       await fetch('/api/mappings/backfill', { method: 'POST' });
-      await loadRows();
+      await loadRows(activeCeId);
     } finally {
       setAcceptingAllHigh(false);
     }
-  }, [rows, loadRows]);
+  }, [rows, activeCeId, rowScope, loadRows]);
 
-  // Tier grouping
   const { mapped, high, medium, low, unsuggested } = useMemo(() => {
     const mapped: MappingRow[] = [];
     const high: MappingRow[] = [];
@@ -196,7 +222,6 @@ export default function MappingsReviewPage() {
       if (r.suggested_confidence === 'low') { low.push(r); continue; }
       unsuggested.push(r);
     }
-    // Sort by usage_count within each tier — most impactful first
     const byUsage = (a: MappingRow, b: MappingRow) => b.usage_count - a.usage_count;
     high.sort(byUsage); medium.sort(byUsage); low.sort(byUsage); unsuggested.sort(byUsage);
     return { mapped, high, medium, low, unsuggested };
@@ -204,23 +229,34 @@ export default function MappingsReviewPage() {
 
   const totalUnmapped = high.length + medium.length + low.length + unsuggested.length;
   const reviewedPct = rows.length === 0 ? 0 : Math.round((mapped.length / rows.length) * 100);
+  const activeCe = consultingEngineers.find(c => c.id === activeCeId) ?? null;
 
   return (
     <div className="flex gap-4" style={{ height: 'calc(100vh - 4rem)' }}>
-      {/* Left: review queue — scrolls independently so the right-side
-          preview stays pinned in view regardless of how long the list is. */}
       <div className="flex-1 min-w-0 space-y-4 overflow-y-auto pr-2">
-        {/* Header / progress / bulk actions */}
         <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Review Queue</h2>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-gray-900">Review Queue</h2>
+                <select
+                  value={activeCeId ?? ''}
+                  onChange={e => setActiveCeId(e.target.value ? Number(e.target.value) : null)}
+                  className="text-sm rounded-md border border-slate-300 px-3 py-1.5 bg-white"
+                >
+                  <option value="">All consulting engineers (tenant-wide)</option>
+                  {consultingEngineers.map(ce => (
+                    <option key={ce.id} value={ce.id}>{ce.name}</option>
+                  ))}
+                </select>
+              </div>
               <p className="text-sm text-gray-500 mt-1">
-                AI suggests the best rate-card match for every unmapped CAD block — you confirm or override.
-                The system learns from your corrections for next time.
+                {activeCe
+                  ? <>Viewing mappings for <span className="font-semibold text-slate-700">{activeCe.name}</span>. Confirmed mappings default to {activeCe.name}-specific, but you can mark any as tenant-wide if they apply to every drafting firm.</>
+                  : <>Showing all tenant-wide mappings. Pick a consulting engineer above to see firm-specific mappings.</>}
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               {usage && (
                 <a
                   href="/dashboard/settings/ai-usage"
@@ -268,55 +304,32 @@ export default function MappingsReviewPage() {
           {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
         </div>
 
-        {/* Tiered sections */}
         <Tier title="High confidence" subtitle="AI is confident these are correct — one-click approve" color="emerald" rows={high}
-          rateItems={rateItems}
-          previewRow={previewRow} onSelect={setPreviewRow}
-          onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
-          onReject={(r, id) => acceptMapping(r, id, true)}
-          rateSearch={rateSearch} setRateSearch={setRateSearch}
-          saving={saving} onClear={clearMapping}
-        />
+          {...{ rateItems, previewRow, onSelect: setPreviewRow, onAccept: r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false),
+                onReject: (r, id) => acceptMapping(r, id, true), rateSearch, setRateSearch, saving, onClear: clearMapping,
+                rowScope, setRowScope, activeCe }} />
         <Tier title="Medium confidence" subtitle="Likely correct but worth a skim" color="amber" rows={medium}
-          rateItems={rateItems}
-          previewRow={previewRow} onSelect={setPreviewRow}
-          onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
-          onReject={(r, id) => acceptMapping(r, id, true)}
-          rateSearch={rateSearch} setRateSearch={setRateSearch}
-          saving={saving} onClear={clearMapping}
-        />
+          {...{ rateItems, previewRow, onSelect: setPreviewRow, onAccept: r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false),
+                onReject: (r, id) => acceptMapping(r, id, true), rateSearch, setRateSearch, saving, onClear: clearMapping,
+                rowScope, setRowScope, activeCe }} />
         <Tier title="Low confidence" subtitle="AI is guessing — open the drawing to verify each one" color="slate" rows={low}
-          rateItems={rateItems}
-          previewRow={previewRow} onSelect={setPreviewRow}
-          onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
-          onReject={(r, id) => acceptMapping(r, id, true)}
-          rateSearch={rateSearch} setRateSearch={setRateSearch}
-          saving={saving} onClear={clearMapping}
-        />
+          {...{ rateItems, previewRow, onSelect: setPreviewRow, onAccept: r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false),
+                onReject: (r, id) => acceptMapping(r, id, true), rateSearch, setRateSearch, saving, onClear: clearMapping,
+                rowScope, setRowScope, activeCe }} />
         {unsuggested.length > 0 && (
           <Tier title="No suggestion" subtitle="AI had no match for these — manual mapping only" color="slate" rows={unsuggested}
-            rateItems={rateItems}
-            previewRow={previewRow} onSelect={setPreviewRow}
-            onAccept={r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false)}
-            onReject={(r, id) => acceptMapping(r, id, true)}
-            rateSearch={rateSearch} setRateSearch={setRateSearch}
-            saving={saving} onClear={clearMapping}
-          />
+            {...{ rateItems, previewRow, onSelect: setPreviewRow, onAccept: r => r.suggested_rate_card_item_id && acceptMapping(r, r.suggested_rate_card_item_id, false),
+                  onReject: (r, id) => acceptMapping(r, id, true), rateSearch, setRateSearch, saving, onClear: clearMapping,
+                  rowScope, setRowScope, activeCe }} />
         )}
-
         {mapped.length > 0 && (
-          <Tier title="Confirmed mappings" subtitle="Already mapped — these auto-apply to every drawing" color="emerald" rows={mapped}
-            rateItems={rateItems}
-            previewRow={previewRow} onSelect={setPreviewRow}
-            onAccept={() => {}} onReject={() => {}}
-            rateSearch={rateSearch} setRateSearch={setRateSearch}
-            saving={saving} onClear={clearMapping}
-            confirmed
-          />
+          <Tier title="Confirmed mappings" subtitle="Already mapped — auto-apply to every matching drawing" color="emerald" rows={mapped}
+            {...{ rateItems, previewRow, onSelect: setPreviewRow, onAccept: () => {}, onReject: () => {},
+                  rateSearch, setRateSearch, saving, onClear: clearMapping,
+                  rowScope, setRowScope, activeCe, confirmed: true }} />
         )}
       </div>
 
-      {/* Right: sticky drawing preview */}
       {previewRow && previewRow.drawing_id && (
         <div className="w-[520px] shrink-0 flex flex-col rounded-lg shadow bg-white overflow-hidden border border-slate-200 h-full">
           <div className="flex items-center justify-between px-3 py-2 border-b bg-slate-50 shrink-0">
@@ -356,12 +369,16 @@ interface TierProps {
   onReject: (r: MappingRow, chosenRateCardItemId: number) => void;
   rateSearch: Record<string, string>;
   setRateSearch: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+  rowScope: Record<string, 'ce' | 'all'>;
+  setRowScope: (fn: (prev: Record<string, 'ce' | 'all'>) => Record<string, 'ce' | 'all'>) => void;
   saving: string | null;
-  onClear: (name: string) => void;
+  onClear: (row: MappingRow) => void;
+  activeCe: ConsultingEngineer | null;
   confirmed?: boolean;
 }
 
-function Tier({ title, subtitle, color, rows, rateItems, previewRow, onSelect, onAccept, onReject, rateSearch, setRateSearch, saving, onClear, confirmed }: TierProps) {
+function Tier(props: TierProps) {
+  const { title, subtitle, color, rows } = props;
   if (rows.length === 0) return null;
   const headerColor = color === 'emerald' ? 'border-emerald-400 bg-emerald-50' : color === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-slate-300 bg-slate-50';
 
@@ -377,19 +394,7 @@ function Tier({ title, subtitle, color, rows, rateItems, previewRow, onSelect, o
         </div>
       </div>
       <div className="divide-y divide-slate-100">
-        {rows.map(row => (
-          <Row key={row.name} row={row} rateItems={rateItems}
-            isSelected={previewRow?.name === row.name}
-            onSelect={onSelect}
-            onAccept={onAccept}
-            onReject={onReject}
-            rateSearch={rateSearch}
-            setRateSearch={setRateSearch}
-            saving={saving === row.name}
-            onClear={onClear}
-            confirmed={!!confirmed}
-          />
-        ))}
+        {rows.map(row => <Row key={row.name} row={row} {...props} confirmed={!!props.confirmed} />)}
       </div>
     </div>
   );
@@ -399,32 +404,24 @@ function Tier({ title, subtitle, color, rows, rateItems, previewRow, onSelect, o
 // Row
 // ---------------------------------------------------------------------------
 
-interface RowProps {
+interface RowProps extends TierProps {
   row: MappingRow;
-  rateItems: RateCardItem[];
-  isSelected: boolean;
-  onSelect: (r: MappingRow) => void;
-  onAccept: (r: MappingRow) => void;
-  onReject: (r: MappingRow, chosenRateCardItemId: number) => void;
-  rateSearch: Record<string, string>;
-  setRateSearch: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
-  saving: boolean;
-  onClear: (name: string) => void;
   confirmed: boolean;
 }
 
-function Row({ row, rateItems, isSelected, onSelect, onAccept, onReject, rateSearch, setRateSearch, saving, onClear, confirmed }: RowProps) {
+function Row({ row, rateItems, previewRow, onSelect, onAccept, onReject, rateSearch, setRateSearch, rowScope, setRowScope, saving, onClear, confirmed, activeCe }: RowProps) {
   const q = rateSearch[row.name] ?? '';
   const rateCandidates = rateItems.filter(
     i => !q || i.description.toLowerCase().includes(q.toLowerCase()) || i.section_name.toLowerCase().includes(q.toLowerCase())
   ).slice(0, 50);
+  const isSelected = previewRow?.name === row.name;
+  const scope = rowScope[row.name] ?? (activeCe ? 'ce' : 'all');
 
   return (
     <div
       onClick={() => onSelect(row)}
-      className={`px-5 py-3 flex items-center gap-4 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : 'hover:bg-slate-50'}`}
+      className={`px-5 py-3 flex items-start gap-4 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : 'hover:bg-slate-50'}`}
     >
-      {/* Type pill + CAD name */}
       <div className="w-56 shrink-0">
         <div className="flex items-center gap-2">
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.type === 'block' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
@@ -439,12 +436,23 @@ function Row({ row, rateItems, isSelected, onSelect, onAccept, onReject, rateSea
         )}
       </div>
 
-      {/* Suggestion or confirmed mapping */}
       <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
         {confirmed && row.rate_card_description ? (
-          <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">✓ Confirmed</span>
-            <span className="text-sm text-slate-700 truncate">{row.rate_card_description}</span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">✓ Confirmed</span>
+              {row.mapping_scope === 'ce-specific' && activeCe && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700" title={`Only applies to ${activeCe.name} drawings`}>
+                  {activeCe.name} only
+                </span>
+              )}
+              {row.mapping_scope === 'tenant-wide' && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700" title="Applies to every consulting engineer">
+                  All CEs
+                </span>
+              )}
+              <span className="text-sm text-slate-700 truncate">{row.rate_card_description}</span>
+            </div>
           </div>
         ) : row.suggested_rate_card_item_id && row.suggested_confidence ? (
           <div className="space-y-1">
@@ -467,19 +475,39 @@ function Row({ row, rateItems, isSelected, onSelect, onAccept, onReject, rateSea
         )}
       </div>
 
-      {/* Actions */}
       <div className="shrink-0 flex items-center gap-2" onClick={e => e.stopPropagation()}>
         {confirmed ? (
-          <button onClick={() => onClear(row.name)} className="text-xs text-red-500 hover:text-red-700">Clear</button>
+          <button onClick={() => onClear(row)} className="text-xs text-red-500 hover:text-red-700">Clear</button>
         ) : (
           <>
+            {/* Scope toggle — only visible when a CE is selected.
+                Controls whether accepting writes a CE-specific mapping or a
+                tenant-wide one. */}
+            {activeCe && (
+              <div className="flex rounded border border-slate-200 overflow-hidden text-[10px] font-semibold">
+                <button
+                  onClick={() => setRowScope(prev => ({ ...prev, [row.name]: 'ce' }))}
+                  className={`px-2 py-1 ${scope === 'ce' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                  title={`Apply only to ${activeCe.name} drawings`}
+                >
+                  {activeCe.name} only
+                </button>
+                <button
+                  onClick={() => setRowScope(prev => ({ ...prev, [row.name]: 'all' }))}
+                  className={`px-2 py-1 ${scope === 'all' ? 'bg-slate-100 text-slate-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                  title="Apply to every consulting engineer"
+                >
+                  All CEs
+                </button>
+              </div>
+            )}
             {row.suggested_rate_card_item_id && (
               <button
                 onClick={() => onAccept(row)}
-                disabled={saving}
+                disabled={saving === row.name}
                 className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded hover:bg-emerald-700 disabled:opacity-50"
               >
-                {saving ? '…' : 'Accept'}
+                {saving === row.name ? '…' : 'Accept'}
               </button>
             )}
             <div className="relative">
