@@ -3,7 +3,10 @@
     "allow": [
       "mcp__mcp-registry__search_mcp_registry",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "WebFetch(domain:www.perplexity.ai)"
     ]
   }
 }

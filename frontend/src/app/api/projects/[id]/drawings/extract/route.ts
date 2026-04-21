@@ -3,7 +3,7 @@ import { query } from '@/lib/db';
 import { extractDrawing } from '@/lib/extraction-client';
 import { requireTenant } from '@/lib/require-tenant';
 import { recordLlmUsage } from '@/lib/llm-usage';
-import { detectConsultingEngineer } from '@/lib/ce-detector';
+import { detectFirms, upsertFirm } from '@/lib/firm-detector';
 
 interface LegendDataWithUsage {
   _usage?: {
@@ -42,14 +42,12 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
     return NextResponse.json({ message: 'No pending drawings to extract' });
   }
 
-  // Current project CE — if already set, don't auto-override; we still run
-  // detection per drawing for the telemetry, but the project's binding is
-  // sticky once established.
-  const [project] = await query<{ consulting_engineer_id: number | null }>(
-    'SELECT consulting_engineer_id FROM projects WHERE id = $1',
+  const [project] = await query<{ consulting_engineer_id: number | null; builder_id: number | null }>(
+    'SELECT consulting_engineer_id, builder_id FROM projects WHERE id = $1',
     [id]
   );
   let projectCeId = project?.consulting_engineer_id ?? null;
+  let projectBuilderId = project?.builder_id ?? null;
 
   const results = [];
   for (const drawing of drawings) {
@@ -77,11 +75,8 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
         delete legend._usage;
       }
 
-      // Auto-detect consulting engineer from this drawing's content. Runs
-      // even when the project already has a CE so that individual drawings
-      // get their own detection record (useful if someone uploads mixed
-      // drawings by mistake).
-      const detection = await detectConsultingEngineer(tenantId, {
+      // Detect consulting engineer AND builder in one Claude call.
+      const detection = await detectFirms(tenantId, {
         annotations: (result.annotations ?? []).map(a => ({
           text: a.text ?? '',
           position: a.position,
@@ -94,6 +89,17 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
         ].filter(Boolean))),
       });
 
+      // Upsert each detected firm into the right table. If the firm
+      // already exists (by slug), we reuse its id. Empty names skip.
+      let detectedCeId: number | null = null;
+      if (detection.consulting_engineer.name) {
+        detectedCeId = await upsertFirm('consulting_engineers', tenantId, detection.consulting_engineer.name);
+      }
+      let detectedBuilderId: number | null = null;
+      if (detection.builder.name) {
+        detectedBuilderId = await upsertFirm('builders', tenantId, detection.builder.name);
+      }
+
       await query(
         `UPDATE drawings SET extraction_status = 'complete',
                               extraction_result = $1,
@@ -104,31 +110,39 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
          WHERE id = $5`,
         [
           JSON.stringify(result),
-          detection.consulting_engineer_id,
-          detection.confidence,
-          detection.evidence,
+          detectedCeId,
+          detection.consulting_engineer.confidence,
+          detection.consulting_engineer.evidence,
           drawing.id,
         ]
       );
 
-      // Auto-attach the project to the detected CE if:
-      //   - project has no CE yet
-      //   - detection is high-confidence
-      // Medium/low needs manual confirmation so we don't accidentally
-      // train the wrong dictionary.
-      if (!projectCeId && detection.consulting_engineer_id && detection.confidence === 'high') {
+      // Auto-attach project to detected CE if not already set and detection
+      // is "high" confidence. Medium/low require manual confirmation so we
+      // don't accidentally train the wrong dictionary.
+      if (!projectCeId && detectedCeId && detection.consulting_engineer.confidence === 'high') {
         await query(
           'UPDATE projects SET consulting_engineer_id = $1 WHERE id = $2 AND consulting_engineer_id IS NULL',
-          [detection.consulting_engineer_id, id]
+          [detectedCeId, id]
         );
-        projectCeId = detection.consulting_engineer_id;
+        projectCeId = detectedCeId;
+      }
+      // Same rule for builder.
+      if (!projectBuilderId && detectedBuilderId && detection.builder.confidence === 'high') {
+        await query(
+          'UPDATE projects SET builder_id = $1 WHERE id = $2 AND builder_id IS NULL',
+          [detectedBuilderId, id]
+        );
+        projectBuilderId = detectedBuilderId;
       }
 
       results.push({
         id: drawing.id,
         status: 'complete',
-        detected_ce: detection.consulting_engineer_name,
-        detected_confidence: detection.confidence,
+        detected_ce: detection.consulting_engineer.name,
+        detected_ce_confidence: detection.consulting_engineer.confidence,
+        detected_builder: detection.builder.name,
+        detected_builder_confidence: detection.builder.confidence,
       });
     } catch (error) {
       await query(

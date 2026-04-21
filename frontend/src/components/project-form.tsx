@@ -28,7 +28,8 @@ export default function ProjectForm() {
   }, []);
 
   async function ensureFirm(kind: 'consulting-engineers' | 'builders', dropdownValue: string, newName: string): Promise<number | null> {
-    if (dropdownValue && dropdownValue !== '__new__') return Number(dropdownValue);
+    if (!dropdownValue) return null;                               // "auto-detect"
+    if (dropdownValue !== '__new__') return Number(dropdownValue); // existing row
     if (dropdownValue === '__new__' && newName.trim()) {
       const res = await fetch(`/api/${kind}`, {
         method: 'POST',
@@ -96,61 +97,6 @@ export default function ProjectForm() {
         <input name="address" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
       </div>
 
-      {/* Consulting Engineer */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700">
-          Consulting Engineer{' '}
-          <span className="text-xs font-normal text-gray-400">— drives mapping dictionary</span>
-        </label>
-        <select
-          value={ceId}
-          onChange={e => setCeId(e.target.value)}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm bg-white"
-        >
-          <option value="">— select —</option>
-          {consultingEngineers.map(f => (
-            <option key={f.id} value={f.id}>{f.name}{!f.is_seed ? ' (custom)' : ''}</option>
-          ))}
-          <option value="__new__">+ Add new consulting engineer…</option>
-        </select>
-        {ceId === '__new__' && (
-          <input
-            value={newCeName}
-            onChange={e => setNewCeName(e.target.value)}
-            placeholder="Firm name, e.g. SomeNewCo Engineering"
-            className="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm"
-            autoFocus
-          />
-        )}
-      </div>
-
-      {/* Builder */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700">
-          Builder{' '}
-          <span className="text-xs font-normal text-gray-400">— for reporting only</span>
-        </label>
-        <select
-          value={builderId}
-          onChange={e => setBuilderId(e.target.value)}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm bg-white"
-        >
-          <option value="">— select —</option>
-          {builders.map(f => (
-            <option key={f.id} value={f.id}>{f.name}{!f.is_seed ? ' (custom)' : ''}</option>
-          ))}
-          <option value="__new__">+ Add new builder…</option>
-        </select>
-        {builderId === '__new__' && (
-          <input
-            value={newBuilderName}
-            onChange={e => setNewBuilderName(e.target.value)}
-            placeholder="Builder name"
-            className="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm"
-          />
-        )}
-      </div>
-
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Start Date</label>
@@ -161,6 +107,67 @@ export default function ProjectForm() {
           <input name="end_date" type="date" className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm" />
         </div>
       </div>
+
+      {/* Consulting Engineer + Builder — optional, auto-detected on extraction */}
+      <details className="border border-slate-200 rounded-md bg-slate-50/50">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">
+          Consulting Engineer &amp; Builder
+          <span className="ml-2 text-xs font-normal text-slate-500">— auto-detected from drawings if left blank</span>
+        </summary>
+        <div className="px-3 pb-3 pt-1 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600">
+              Consulting Engineer <span className="text-gray-400">(drives mapping dictionary)</span>
+            </label>
+            <select
+              value={ceId}
+              onChange={e => setCeId(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm bg-white"
+            >
+              <option value="">Auto-detect from drawings</option>
+              <option value="__new__">+ Specify a new firm</option>
+              {consultingEngineers.length > 0 && <option disabled>──────────</option>}
+              {consultingEngineers.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+            {ceId === '__new__' && (
+              <input
+                value={newCeName}
+                onChange={e => setNewCeName(e.target.value)}
+                placeholder="Firm name, e.g. Jacobs"
+                className="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm"
+                autoFocus
+              />
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600">
+              Builder <span className="text-gray-400">(for reporting only)</span>
+            </label>
+            <select
+              value={builderId}
+              onChange={e => setBuilderId(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm bg-white"
+            >
+              <option value="">Auto-detect from drawings</option>
+              <option value="__new__">+ Specify a new builder</option>
+              {builders.length > 0 && <option disabled>──────────</option>}
+              {builders.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+            {builderId === '__new__' && (
+              <input
+                value={newBuilderName}
+                onChange={e => setNewBuilderName(e.target.value)}
+                placeholder="Builder name, e.g. Lendlease"
+                className="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm"
+              />
+            )}
+          </div>
+        </div>
+      </details>
 
       {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
       <button
