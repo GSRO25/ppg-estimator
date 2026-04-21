@@ -92,6 +92,21 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
     return sum + qty * rates;
   }, 0), [items]);
 
+  // Priced vs unpriced split — drives the progress banner. An item is
+  // "priced" if it resolved to a rate_card_item_id AND has non-zero
+  // rate data. Unmapped blocks land here as unpriced, which is the
+  // signal the estimator needs to go review them.
+  const { priced, unpriced } = useMemo(() => {
+    let priced = 0, unpriced = 0;
+    for (const i of items) {
+      const rate = (i.labour_rate || 0) + (i.material_rate || 0) + (i.plant_rate || 0);
+      if (i.rate_card_item_id && rate > 0) priced++;
+      else unpriced++;
+    }
+    return { priced, unpriced };
+  }, [items]);
+  const pricedPct = items.length === 0 ? 0 : Math.round((priced / items.length) * 100);
+
   // Derived: hovered row (grid -> drawing highlight)
   const hoveredRow = hoveredItemId ? items.find(i => i.id === hoveredItemId) ?? null : null;
 
@@ -161,6 +176,32 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
           </button>
         </div>
       </div>
+
+      {/* Pricing-progress banner. Shows when any items are unpriced so the
+          estimator has a visible nudge — "$0 rows aren't a bug, you just
+          haven't finished reviewing mappings yet". Does not auto-apply
+          anything; the Review Queue remains the accuracy gate. */}
+      {items.length > 0 && unpriced > 0 && (
+        <div className="px-4 py-2 border-b bg-amber-50 flex items-center justify-between gap-4 shrink-0 text-xs">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="font-semibold text-amber-800">
+              {priced} of {items.length} items priced
+            </span>
+            <div className="flex-1 min-w-[160px] max-w-[280px] h-1.5 bg-amber-200 rounded overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded" style={{ width: `${pricedPct}%` }} />
+            </div>
+            <span className="text-amber-700">
+              {unpriced} {unpriced === 1 ? 'row needs' : 'rows need'} a mapping to be priced
+            </span>
+          </div>
+          <Link
+            href="/dashboard/settings/mappings"
+            className="px-3 py-1 bg-ppg-navy text-white rounded font-semibold hover:opacity-90 shrink-0"
+          >
+            Review {unpriced} {unpriced === 1 ? 'row' : 'rows'} →
+          </Link>
+        </div>
+      )}
 
       {/* Full-screen drawing with floating grid panel */}
       {/* Clicking the drawing area (outside the panel) closes the panel */}
