@@ -3,7 +3,11 @@
 import { useState, useCallback, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ACCEPTED_FORMATS = '.dwg,.dxf,.pdf';
+// PDFs need a separate extraction pipeline (vision-based) that isn't
+// wired up yet — accepting them today results in an instant "failed"
+// status with no useful output. Block them at upload with a clear
+// message and re-enable when backend PDF support ships.
+const ACCEPTED_FORMATS = '.dwg,.dxf';
 
 // Nginx client_max_body_size is 500 MB; keep this slightly below so we warn
 // the user before the upload even starts, instead of failing server-side.
@@ -70,7 +74,8 @@ export default function DrawingUpload({ projectId }: { projectId: number }) {
         id="drawing-upload"
       />
       <label htmlFor="drawing-upload" className="cursor-pointer">
-        <p className="text-gray-500">Click to select or drag and drop DWG, DXF, or PDF files</p>
+        <p className="text-gray-500">Click to select or drag and drop DWG or DXF files</p>
+        <p className="text-xs text-gray-400 mt-1">PDF support is coming — use the original DWG/DXF for now</p>
       </label>
       {files.length > 0 && (
         <div className="mt-4">

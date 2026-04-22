@@ -92,20 +92,35 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
     return sum + qty * rates;
   }, 0), [items]);
 
-  // Priced vs unpriced split — drives the progress banner. An item is
-  // "priced" if it resolved to a rate_card_item_id AND has non-zero
-  // rate data. Unmapped blocks land here as unpriced, which is the
-  // signal the estimator needs to go review them.
-  const { priced, unpriced } = useMemo(() => {
-    let priced = 0, unpriced = 0;
+  // Priced vs unpriced split — drives the progress banner.
+  //
+  // We count UNIQUE CAD NAMES (not rows) so this number matches the
+  // Review Queue, which de-duplicates the same way. E.g. if "G-ANNO-TEXT"
+  // produces 4 takeoff rows, it's 1 item to map, not 4. Showing both the
+  // unique count (what matters for user action) and the row count (what
+  // it affects) removes the discrepancy the user saw.
+  const { pricedUniqueNames, unpricedUniqueNames, unpricedRows } = useMemo(() => {
+    const priced = new Set<string>();
+    const unpriced = new Set<string>();
+    let unpricedRows = 0;
     for (const i of items) {
+      const name = i.drawing_region?.block_name || i.drawing_region?.layer || i.description;
       const rate = (i.labour_rate || 0) + (i.material_rate || 0) + (i.plant_rate || 0);
-      if (i.rate_card_item_id && rate > 0) priced++;
-      else unpriced++;
+      const isPriced = !!i.rate_card_item_id && rate > 0;
+      if (isPriced) priced.add(name);
+      else {
+        unpriced.add(name);
+        unpricedRows++;
+      }
     }
-    return { priced, unpriced };
+    return {
+      pricedUniqueNames: priced.size,
+      unpricedUniqueNames: unpriced.size,
+      unpricedRows,
+    };
   }, [items]);
-  const pricedPct = items.length === 0 ? 0 : Math.round((priced / items.length) * 100);
+  const totalUniqueNames = pricedUniqueNames + unpricedUniqueNames;
+  const pricedPct = totalUniqueNames === 0 ? 0 : Math.round((pricedUniqueNames / totalUniqueNames) * 100);
 
   // Derived: hovered row (grid -> drawing highlight)
   const hoveredRow = hoveredItemId ? items.find(i => i.id === hoveredItemId) ?? null : null;
@@ -177,28 +192,30 @@ export default function TakeoffPage({ params }: { params: Promise<{ id: string }
         </div>
       </div>
 
-      {/* Pricing-progress banner. Shows when any items are unpriced so the
-          estimator has a visible nudge — "$0 rows aren't a bug, you just
-          haven't finished reviewing mappings yet". Does not auto-apply
-          anything; the Review Queue remains the accuracy gate. */}
-      {items.length > 0 && unpriced > 0 && (
+      {/* Pricing-progress banner. Counts UNIQUE CAD names (not rows) so the
+          numbers match the Review Queue. $0 rows become a visible progress
+          meter with a one-click path to the queue. */}
+      {totalUniqueNames > 0 && unpricedUniqueNames > 0 && (
         <div className="px-4 py-2 border-b bg-amber-50 flex items-center justify-between gap-4 shrink-0 text-xs">
           <div className="flex items-center gap-3 min-w-0">
             <span className="font-semibold text-amber-800">
-              {priced} of {items.length} items priced
+              {pricedUniqueNames} of {totalUniqueNames} blocks mapped
             </span>
             <div className="flex-1 min-w-[160px] max-w-[280px] h-1.5 bg-amber-200 rounded overflow-hidden">
               <div className="h-full bg-emerald-500 rounded" style={{ width: `${pricedPct}%` }} />
             </div>
             <span className="text-amber-700">
-              {unpriced} {unpriced === 1 ? 'row needs' : 'rows need'} a mapping to be priced
+              {unpricedUniqueNames} unique {unpricedUniqueNames === 1 ? 'block needs' : 'blocks need'} mapping
+              {unpricedRows !== unpricedUniqueNames && (
+                <span className="text-amber-600"> · affects {unpricedRows} takeoff rows</span>
+              )}
             </span>
           </div>
           <Link
             href="/dashboard/settings/mappings"
             className="px-3 py-1 bg-ppg-navy text-white rounded font-semibold hover:opacity-90 shrink-0"
           >
-            Review {unpriced} {unpriced === 1 ? 'row' : 'rows'} →
+            Review {unpricedUniqueNames} {unpricedUniqueNames === 1 ? 'block' : 'blocks'} →
           </Link>
         </div>
       )}

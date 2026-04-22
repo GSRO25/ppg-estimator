@@ -52,6 +52,20 @@ _IGNORE_PATTERNS = [
     re.compile(r"^furniture", re.IGNORECASE),
     re.compile(r"^door", re.IGNORECASE),
     re.compile(r"^window", re.IGNORECASE),
+    # Annotation tag blocks — drafting labels, not installable fixtures.
+    # Patterns like "SAP_Roof Area Tag R20", "SAP_GA_Service Tag - DROPPER".
+    # The word "Tag" consistently marks an annotation symbol in AU
+    # hydraulic drawing conventions.
+    re.compile(r"[_\s-]Tag\b", re.IGNORECASE),           # "Area Tag", "Service Tag"
+    re.compile(r"^Tag[_\s-]", re.IGNORECASE),            # "Tag_something"
+    # General annotation markers
+    re.compile(r"^anno[_-]?", re.IGNORECASE),
+    re.compile(r"[_-]anno$", re.IGNORECASE),
+    re.compile(r"^text[_-]", re.IGNORECASE),
+    re.compile(r"[_-]text$", re.IGNORECASE),
+    # SAP_GA_* (General Arrangement) blocks are usually annotation overlays;
+    # SAP_GS_* (Gas Services) and SAP_SW_* (Stormwater) etc. are real.
+    re.compile(r"^SAP_GA_", re.IGNORECASE),
 ]
 
 

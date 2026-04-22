@@ -16,14 +16,29 @@ LAYER_SERVICE_MAP = {
     "TRADEWASTE": "tradewaste", "TW": "tradewaste",
 }
 
-# Layers that are known to be non-plumbing (architecture / survey / reference)
-# These are skipped entirely during extraction
+# Layers that are known to be non-plumbing (architecture / survey / reference
+# / annotation). These are skipped entirely during pipe extraction so we don't
+# generate phantom "pipe (unknown)" takeoff rows from grid text, dimension
+# lines, notation layers, etc.
 IGNORED_LAYER_PATTERNS = (
+    # Architecture / survey / site reference
     "2D-", "DTM-", "BOUNDARY", "DETAIL", "AREA", "GARDEN", "STAIRS",
     "E COMM", "E ELEC",
-    "HID-SYMBOL", "H_SYMBOL", "H_TEXT", "H-TEXT",
     "SURF-", "ZZ-",
     "CONTOUR",
+    # Plumbing-specific annotation layers (symbol defs, text, schedules)
+    "HID-SYMBOL", "H_SYMBOL", "H_TEXT", "H-TEXT",
+    # General-purpose annotation / drafting layers. G-ANNO-* is AIA layer
+    # standard for grid annotations — never a pipe.
+    "-ANNO-", "G-ANNO", "ANNO-", "ANNOTATION",
+    "-TEXT", "TEXT-",
+    "-DIM", "DIM-", "DIMENSION",
+    "-NOTE", "NOTE-",
+    "-GRID", "GRID-",
+    "-HATCH", "HATCH-",
+    "-TITLE", "TITLE-", "TITLEBLOCK",
+    "-SCHEDULE", "SCHEDULE-",
+    "DEFPOINTS",  # autocad dimension defpoints
 )
 
 

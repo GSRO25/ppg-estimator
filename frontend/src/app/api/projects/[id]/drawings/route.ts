@@ -53,10 +53,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   await mkdir(projectDir, { recursive: true });
 
   const results = [];
+  const rejected: string[] = [];
   for (const file of files) {
     const ext = path.extname(file.name).toLowerCase();
-    const format = ext === '.dwg' ? 'dwg' : ext === '.dxf' ? 'dxf' : ext === '.pdf' ? 'pdf' : null;
-    if (!format) continue;
+    // PDF extraction is planned but not yet wired — reject with a clear
+    // error rather than accepting and failing during extraction.
+    if (ext === '.pdf') {
+      rejected.push(file.name);
+      continue;
+    }
+    const format = ext === '.dwg' ? 'dwg' : ext === '.dxf' ? 'dxf' : null;
+    if (!format) {
+      rejected.push(file.name);
+      continue;
+    }
 
     const filePath = path.join(projectDir, file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -72,5 +82,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     results.push(drawing);
   }
 
-  return NextResponse.json(results, { status: 201 });
+  if (rejected.length > 0 && results.length === 0) {
+    return NextResponse.json({
+      error: `Unsupported file type(s): ${rejected.join(', ')}. Only DWG and DXF are supported — PDF extraction is planned but not yet available.`,
+    }, { status: 400 });
+  }
+  return NextResponse.json({ uploaded: results, rejected }, { status: 201 });
 }
