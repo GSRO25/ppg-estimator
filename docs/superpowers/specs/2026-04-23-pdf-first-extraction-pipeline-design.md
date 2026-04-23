@@ -244,27 +244,29 @@ Threshold N=2 is tunable.
 
 ## 7. Database schema
 
+All new tables use the existing convention: `SERIAL` / `INTEGER` primary keys (not `BIGSERIAL` / `BIGINT`), `rate_card_item_id INTEGER REFERENCES rate_card_items(id)` (there is no `code` column on `rate_card_items`), and reuse of the existing `confidence_level` enum where appropriate.
+
 ### 7.1 New table: `symbol_fingerprints`
 
 ```sql
 CREATE TABLE symbol_fingerprints (
-  id               BIGSERIAL PRIMARY KEY,
-  tenant_id        BIGINT NOT NULL REFERENCES tenants(id),
-  ce_id            BIGINT REFERENCES consulting_engineers(id),
-  fingerprint_type TEXT NOT NULL,  -- 'xobject_hash' | 'shape_cluster_hash'
-  fingerprint_key  TEXT NOT NULL,
-  label            TEXT,
-  rate_code        TEXT NOT NULL REFERENCES rate_card_items(code),
-  confidence       NUMERIC(3,2) NOT NULL DEFAULT 1.00,
-  source           TEXT NOT NULL,  -- 'estimator_correction' | 'initial_seed' | 'promoted_from_ai'
-  created_by       BIGINT REFERENCES users(id),
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  superseded_by    BIGINT REFERENCES symbol_fingerprints(id),
-  UNIQUE (tenant_id, ce_id, fingerprint_type, fingerprint_key)
+  id                   SERIAL PRIMARY KEY,
+  tenant_id            INTEGER NOT NULL REFERENCES tenants(id),
+  consulting_engineer_id INTEGER REFERENCES consulting_engineers(id),
+  fingerprint_type     TEXT NOT NULL,  -- 'xobject_hash' | 'shape_cluster_hash'
+  fingerprint_key      TEXT NOT NULL,
+  label                TEXT,
+  rate_card_item_id    INTEGER NOT NULL REFERENCES rate_card_items(id),
+  confidence           confidence_level NOT NULL DEFAULT 'high',
+  source               TEXT NOT NULL,  -- 'estimator_correction' | 'initial_seed' | 'promoted_from_ai'
+  created_by           INTEGER REFERENCES users(id),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  superseded_by        INTEGER REFERENCES symbol_fingerprints(id)
 );
 
-CREATE INDEX idx_sf_lookup ON symbol_fingerprints
-  (tenant_id, ce_id, fingerprint_type, fingerprint_key)
+CREATE UNIQUE INDEX symbol_fingerprints_scope_unique
+  ON symbol_fingerprints
+    (tenant_id, COALESCE(consulting_engineer_id, 0), fingerprint_type, fingerprint_key)
   WHERE superseded_by IS NULL;
 ```
 
@@ -272,27 +274,28 @@ CREATE INDEX idx_sf_lookup ON symbol_fingerprints
 
 ```sql
 CREATE TABLE extractions (
-  id              BIGSERIAL PRIMARY KEY,
-  tenant_id       BIGINT NOT NULL,
-  project_id      BIGINT NOT NULL REFERENCES projects(id),
-  pdf_document_id BIGINT NOT NULL,
-  page_number     INT NOT NULL,
+  id              SERIAL PRIMARY KEY,
+  tenant_id       INTEGER NOT NULL REFERENCES tenants(id),
+  project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  drawing_id      INTEGER NOT NULL REFERENCES drawings(id) ON DELETE CASCADE,
+  page_number     INTEGER NOT NULL,
   payload         JSONB NOT NULL,
   engine_version  TEXT NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (pdf_document_id, page_number, engine_version)
+  UNIQUE (drawing_id, page_number, engine_version)
 );
+CREATE INDEX idx_extractions_project ON extractions(project_id);
 ```
 
 ### 7.3 New table: `page_classifications`
 
 ```sql
 CREATE TABLE page_classifications (
-  id                    BIGSERIAL PRIMARY KEY,
-  tenant_id             BIGINT NOT NULL,
-  project_id            BIGINT NOT NULL REFERENCES projects(id),
-  pdf_document_id       BIGINT NOT NULL,
-  page_number           INT NOT NULL,
+  id                    SERIAL PRIMARY KEY,
+  tenant_id             INTEGER NOT NULL REFERENCES tenants(id),
+  project_id            INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  drawing_id            INTEGER NOT NULL REFERENCES drawings(id) ON DELETE CASCADE,
+  page_number           INTEGER NOT NULL,
   sheet_code            TEXT,
   discipline_predicted  TEXT NOT NULL,
   discipline_confirmed  TEXT,
@@ -300,55 +303,61 @@ CREATE TABLE page_classifications (
   role_confirmed        TEXT,
   title_block_bbox      JSONB,
   confirmed_at          TIMESTAMPTZ,
-  confirmed_by          BIGINT REFERENCES users(id)
+  confirmed_by          INTEGER REFERENCES users(id),
+  UNIQUE (drawing_id, page_number)
 );
+CREATE INDEX idx_page_class_project ON page_classifications(project_id);
 ```
 
 ### 7.4 New table: `cross_discipline_resolutions`
 
 ```sql
 CREATE TABLE cross_discipline_resolutions (
-  id           BIGSERIAL PRIMARY KEY,
-  tenant_id    BIGINT NOT NULL,
-  ce_id        BIGINT REFERENCES consulting_engineers(id),
-  fixture_type TEXT NOT NULL,      -- e.g. 'WC', 'BSN'
-  trust        TEXT NOT NULL,      -- 'hydraulic' | 'architectural'
-  project_id   BIGINT REFERENCES projects(id),
-  created_by   BIGINT REFERENCES users(id),
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                     SERIAL PRIMARY KEY,
+  tenant_id              INTEGER NOT NULL REFERENCES tenants(id),
+  consulting_engineer_id INTEGER REFERENCES consulting_engineers(id),
+  fixture_type           TEXT NOT NULL,  -- e.g. 'WC', 'BSN'
+  trust                  TEXT NOT NULL,  -- 'hydraulic' | 'architectural'
+  project_id             INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  created_by             INTEGER REFERENCES users(id),
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX idx_cdr_ce_fixture ON cross_discipline_resolutions(tenant_id, consulting_engineer_id, fixture_type);
 ```
 
 ### 7.5 New table: `eval_runs`
 
 ```sql
 CREATE TABLE eval_runs (
-  id             BIGSERIAL PRIMARY KEY,
+  id             SERIAL PRIMARY KEY,
   dataset_name   TEXT NOT NULL,
   engine_version TEXT NOT NULL,
   git_sha        TEXT NOT NULL,
   metrics        JSONB NOT NULL,
   ran_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX idx_eval_runs_dataset_ran ON eval_runs(dataset_name, ran_at DESC);
 ```
 
 ### 7.6 Existing table additions
 
 - `mapping_suggestions` ← `fingerprint_key TEXT NULL` (links to the fingerprint that would apply if promoted)
-- `mapping_suggestion_feedback` ← `led_to_fingerprint_id BIGINT NULL REFERENCES symbol_fingerprints(id)`
+- `mapping_suggestion_feedback` ← `led_to_fingerprint_id INTEGER NULL REFERENCES symbol_fingerprints(id)`
 - `projects` ← `source_format TEXT NOT NULL DEFAULT 'pdf'` (values: `'pdf'`, `'dwg_via_oda'`)
 
 ### 7.7 Migration list
 
+Existing latest migration is `011_drop_firm_seeds.sql`. New migrations:
+
 ```
-011  eval_runs
-012  symbol_fingerprints
-013  page_classifications
-014  extractions
-015  cross_discipline_resolutions
-016  mapping_suggestions.fingerprint_key
-017  mapping_suggestion_feedback.led_to_fingerprint_id
-018  projects.source_format
+012  eval_runs
+013  symbol_fingerprints
+014  page_classifications
+015  extractions
+016  cross_discipline_resolutions
+017  mapping_suggestions.fingerprint_key
+018  mapping_suggestion_feedback.led_to_fingerprint_id
+019  projects.source_format
 ```
 
 All additive. No destructive changes.
